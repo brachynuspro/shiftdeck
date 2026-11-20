@@ -1,0 +1,10 @@
+{
+  "name": "SpotifyArduino",
+  "version": "1.0.0-patched",
+  "description": "Vendored copy of witnessmenow/spotify-api-arduino with the buffer-overflow fix in refreshAccessToken()/requestAccessTokens() and a new setBearerToken() public method. See ShiftDeck DEVELOPMENT_JOURNEY.md (Phase 5 attempt 8, Phase 7 reboot) and PATCH_NOTES.md for the exact diffs. Drop the override in platformio.ini (lib_extra_dirs = lib) and remove this directory if you want to go back to the upstream library.",
+  "keywords": ["spotify", "api", "esp32", "arduino"],
+  "authors": [{ "name": "Brian Lough (upstream)", "url": "https://github.com/witnessmenow/spotify-api-arduino" }],
+  "license": "LGPL-2.1+",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}
