@@ -234,6 +234,13 @@ void setup() {
     spotifyCfgView  = new SpotifyConfigView(&displayUI);
     spotifyAuthView = new SpotifyAuthView(&displayUI);
     bootView        = new BootView(&displayUI);
+    // Tell the user why the last boot was a reset: a weak supply shows up as brownout.
+    esp_reset_reason_t resetReason = esp_reset_reason();
+    spLogI(LOGTAG_BOOT, "Reset reason: %d", (int)resetReason);
+    if (resetReason == ESP_RST_BROWNOUT)
+        bootView->setNotice("Energia fraca: use fonte de 1 A", C_WARN);
+    else if (resetReason == ESP_RST_PANIC || resetReason == ESP_RST_INT_WDT || resetReason == ESP_RST_TASK_WDT || resetReason == ESP_RST_WDT)
+        bootView->setNotice("Reiniciou por erro", C_ERROR);
     homeView      = new HomeView(&displayUI);
     searchView    = new SearchView(&displayUI);
     plView        = new PlaylistView(&displayUI);
@@ -282,6 +289,10 @@ void setup() {
     bootView->setStep(BootView::STEP_WIFI, BootView::LOADING, "Conectando...");
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid.c_str(), vault.getWiFiPassword().c_str());
+    // 15 dBm instead of 19.5: a little less range, much smaller current peaks, which
+    // reset the board on weak supplies (USB hubs, thin cables, car ports).
+    // Only takes effect once the station is started, i.e. after begin().
+    WiFi.setTxPower(WIFI_POWER_15dBm);
     unsigned long wifiStart = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 12000) {
         bootView->animate();

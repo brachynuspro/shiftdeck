@@ -22,7 +22,8 @@ void BootView::draw() {
 
     _ui->setTextColor(C_MUTED, C_BG);
     _ui->drawString(VERSION_SHORT, PANEL_X, _ui->textY(FONT_XS, 226), FONT_XS);
-    _ui->drawRightString(BOARD_NAME, PANEL_X + PANEL_W, _ui->textY(FONT_XS, 226), FONT_XS);
+    if (_notice) _ui->setTextColor(_noticeColor, C_BG);
+    _ui->drawRightString(_notice ? _notice : BOARD_NAME, PANEL_X + PANEL_W, _ui->textY(FONT_XS, 226), FONT_XS);
     _dirty = false;
 }
 

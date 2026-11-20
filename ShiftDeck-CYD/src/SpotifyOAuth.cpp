@@ -164,9 +164,11 @@ static void serveCode() {
 String fetchSpotifyAuthCode() {
     s_authCode = "";
     s_codeReceived = false;
-    // RFC 7636 appendix B test vector: a wrong hash/encoding would only show up as a 400 later.
-    if (pkceChallenge("dBjftJeZ4CVP-mJ92K9qO0X9vgpthM3mU8rT5NAqWNc") != "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-        spLogE(LOGTAG_PLAYER, "PKCE self-test FAILED");
+    // Known answer (Python: base64url(sha256(v)) without "="): a wrong hash/encoding would
+    // otherwise only show up as a 400 from Spotify at the token exchange.
+    String probe = pkceChallenge("dBjftJeZ4CVP-mJ92K9qO0X9vgpthM3mU8rT5NAqWNc");
+    if (probe != "e4FYwADvkUVAEf0-DZVNAv0LGhO8wG17mt1zq_FAUTY")
+        spLogE(LOGTAG_PLAYER, "PKCE self-test FAILED: %s", probe.c_str());
     s_verifier = newVerifier();
     s_challenge = pkceChallenge(s_verifier);
 

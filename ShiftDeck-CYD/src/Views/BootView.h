@@ -23,6 +23,8 @@ public:
     void setStep(Step step, State state, const char* label = nullptr);
     void setProgress(int pct);
     void animate();                 // call while blocking; cheap when nothing spins
+    // Replaces the board name in the footer, e.g. why the last boot was a reset.
+    void setNotice(const char* text, uint16_t color) { _notice = text; _noticeColor = color; }
 
 private:
     struct Row { const char* name; IconID icon; State state; const char* label; };
@@ -36,6 +38,8 @@ private:
     int _progress = 0;
     int16_t _knobX = -1;
     unsigned long _lastSpin = 0;
+    const char* _notice = nullptr;
+    uint16_t _noticeColor = C_MUTED;
 
     void drawRow(int i, bool statusOnly);
 

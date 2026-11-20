@@ -276,6 +276,10 @@ int main(int argc, char** argv) {
     boot.setStep(BootView::STEP_SPOTIFY, BootView::LOADING);
     boot.setProgress(70);
     dump(out, "1_boot");
+    boot.setNotice("Energia fraca: use fonte de 1 A", C_WARN);
+    boot.markDirty();
+    boot.draw();
+    dump(out, "1b_boot_brownout");
 
     // 2. home
     vm.gotoView(ViewID::Home);
