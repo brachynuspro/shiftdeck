@@ -7,6 +7,7 @@
 #include "Vault.h"
 #include "XPT2046Touch.h"
 #include "TouchCalibration.h"
+#include "Updater.h"
 #include <WiFi.h>
 
 // Global in main.cpp; reused for recalibration from Diagnóstico.
@@ -14,7 +15,7 @@ extern XPT2046Touch touch;
 
 SettingsView::Panel SettingsView::s_nextPanel = SettingsView::PANEL_LIST;
 
-static const char* const PANEL_TITLES[] = { "Configurações", "Wi-Fi", "Brilho", "Dispositivo", "Atualização", "Diagnóstico" };
+static const char* const PANEL_TITLES[] = { "Configurações", "Wi-Fi", "Conta Spotify", "Brilho", "Dispositivo", "Atualização", "Diagnóstico" };
 
 SettingsView::SettingsView(DisplayUI *ui) : UIView(ui) {
     _id = ViewID::Settings;
@@ -60,6 +61,7 @@ void SettingsView::drawBody() {
             drawFooter("Voltar", IconID::Undo, "Salvar", IconID::Save, true);
             break;
         case PANEL_WIFI:       drawWifiPanel(); break;
+        case PANEL_ACCOUNT:    drawAccountPanel(); break;
         case PANEL_BRIGHTNESS: drawBrightnessPanel(); break;
         case PANEL_DEVICE:     drawDevicePanel(); break;
         case PANEL_UPDATE:     drawUpdatePanel(); break;
@@ -107,11 +109,14 @@ void SettingsView::drawListRows() {
     char pct[8];
     snprintf(pct, sizeof(pct), "%d%%", _brightness);
     drawRow(0, IconID::Wifi, "Wi-Fi", wifiOk ? WiFi.SSID() : String("Desconectado"), wifiOk ? C_GREEN : C_ERROR, true);
-    drawRow(1, IconID::Brightness, "Brilho", pct, C_GREEN, true);
-    drawRow(2, IconID::Phone, "Dispositivo", dev.length() ? dev : String("Nenhum"), dev.length() ? C_GREEN : C_MUTED, true);
-    drawRow(3, IconID::Update, "Atualização", VERSION_SHORT, C_GREEN, true);
+    bool api = SpotifyPlayer::getInstance().isApiOnline();
+    drawRow(1, IconID::Spotify, "Conta Spotify", api ? "Conectada" : "Offline", api ? C_GREEN : C_ERROR, true);
+    drawRow(2, IconID::Brightness, "Brilho", pct, C_GREEN, true);
+    drawRow(3, IconID::Phone, "Dispositivo", dev.length() ? dev : String("Nenhum"), dev.length() ? C_GREEN : C_MUTED, true);
+    bool newer = Updater::isNewer(SpotifyPlayer::getInstance().getLatestVersion().c_str(), VERSION);
+    drawRow(4, IconID::Update, "Atualização", newer ? "Nova versão" : VERSION_SHORT, newer ? C_WARN : C_GREEN, true);
     bool ok = diagnosticsOk();
-    drawRow(4, IconID::Diagnostics, "Diagnóstico", ok ? "OK" : "Atenção", ok ? C_GREEN : C_WARN, true);
+    drawRow(5, IconID::Diagnostics, "Diagnóstico", ok ? "OK" : "Atenção", ok ? C_GREEN : C_WARN, true);
 }
 
 void SettingsView::drawWifiPanel() {
@@ -128,6 +133,19 @@ void SettingsView::drawWifiPanel() {
     _ui->drawCentreString("(rede ShiftDeck + QR code)", CENTER_X, _ui->textY(FONT_XS, 168), FONT_XS);
     bool confirming = _confirmUntil && millis() < _confirmUntil;
     drawFooter("Reconectar", IconID::Update, confirming ? "Confirmar?" : "Trocar rede", IconID::Wifi, true);
+}
+
+void SettingsView::drawAccountPanel() {
+    bool api = SpotifyPlayer::getInstance().isApiOnline();
+    String cid = Vault::getInstance().getSpotifyClientID();
+    drawRow(0, IconID::Spotify, "Login", api ? "Conectado" : "Offline", api ? C_GREEN : C_ERROR, false);
+    drawRow(1, IconID::Settings, "App (Client ID)", cid.length() > 6 ? cid.substring(0, 6) + "..." : cid, C_SECONDARY, false);
+    _ui->setTextColor(C_MUTED, C_BG);
+    _ui->drawCentreString("Sair apaga o login desta ShiftDeck.", CENTER_X, _ui->textY(FONT_SM, 140), FONT_SM);
+    _ui->drawCentreString("Ela reinicia e mostra o QR para entrar", CENTER_X, _ui->textY(FONT_SM, 160), FONT_SM);
+    _ui->drawCentreString("de novo, com a mesma ou outra conta.", CENTER_X, _ui->textY(FONT_SM, 180), FONT_SM);
+    bool confirming = _confirmUntil && millis() < _confirmUntil;
+    drawFooter("Voltar", IconID::Undo, confirming ? "Confirmar?" : "Sair da conta", IconID::Close, false);
 }
 
 void SettingsView::drawBrightnessValue() {
@@ -175,13 +193,18 @@ void SettingsView::drawDevicePanel() {
 }
 
 void SettingsView::drawUpdatePanel() {
-    drawRow(0, IconID::Update, "Versão", VERSION, C_GREEN, false);
-    drawRow(1, IconID::Save, "Compilado em", __DATE__, C_SECONDARY, false);
+    String latest = SpotifyPlayer::getInstance().getLatestVersion();
+    bool newer = Updater::isNewer(latest.c_str(), VERSION);
+    drawRow(0, IconID::Update, "Instalada", VERSION, C_GREEN, false);
+    drawRow(1, IconID::Cloud, "Mais recente", latest.length() ? latest : String("Verificando..."),
+            newer ? C_WARN : latest.length() ? C_GREEN : C_MUTED, false);
     drawRow(2, IconID::Display, "Placa", BOARD_NAME, C_SECONDARY, false);
     _ui->setTextColor(C_MUTED, C_BG);
-    _ui->drawCentreString("Para atualizar, conecte o cabo USB", CENTER_X, _ui->textY(FONT_SM, 154), FONT_SM);
-    _ui->drawCentreString("e use o instalador web no navegador.", CENTER_X, _ui->textY(FONT_SM, 174), FONT_SM);
-    drawFooter("Voltar", IconID::Undo, nullptr, IconID::Undo, false);
+    _ui->drawCentreString(newer ? "Atualiza pela internet, sem cabo," : "A ShiftDeck procura versões novas",
+                          CENTER_X, _ui->textY(FONT_SM, 154), FONT_SM);
+    _ui->drawCentreString(newer ? "e mantém o Wi-Fi e a conta." : "sozinha a cada 6 horas.",
+                          CENTER_X, _ui->textY(FONT_SM, 174), FONT_SM);
+    drawFooter("Voltar", IconID::Undo, newer ? "Atualizar" : "Verificar", IconID::Update, newer);
 }
 
 void SettingsView::drawDiagPanel() {
@@ -233,8 +256,8 @@ void SettingsView::onTap(uint16_t x, uint16_t y) {
             UIViewManager::getInstance().back();
             return;
         }
-        if (row >= 0 && row < 5) {
-            static const Panel targets[5] = { PANEL_WIFI, PANEL_BRIGHTNESS, PANEL_DEVICE, PANEL_UPDATE, PANEL_DIAG };
+        if (row >= 0 && row < 6) {
+            static const Panel targets[6] = { PANEL_WIFI, PANEL_ACCOUNT, PANEL_BRIGHTNESS, PANEL_DEVICE, PANEL_UPDATE, PANEL_DIAG };
             openPanel(targets[row]);
             drawBody();
         }
@@ -243,7 +266,7 @@ void SettingsView::onTap(uint16_t x, uint16_t y) {
 
     // Every panel: header arrow or the left button returns to the list
     // (brightness keeps its preview until Salvar/Voltar on the list).
-    if (header || (leftBtn && _panel != PANEL_WIFI) || (footer && _panel == PANEL_UPDATE)) {
+    if (header || (leftBtn && _panel != PANEL_WIFI)) {
         if (_panel == PANEL_BRIGHTNESS && leftBtn) { _brightness = _savedBrightness; _ui->setBacklight(_brightness); }
         _panel = PANEL_LIST;
         drawBody();
@@ -269,6 +292,23 @@ void SettingsView::onTap(uint16_t x, uint16_t y) {
                 drawWifiPanel();
             }
             break;
+        case PANEL_ACCOUNT:
+            if (!rightBtn) break;
+            if (_confirmUntil && millis() < _confirmUntil) {
+                // Keep the Client ID: the board reboots straight into "Autorize o Spotify".
+                // Dropping a pre-PKCE secret makes the new login use PKCE.
+                Vault& v = Vault::getInstance();
+                v.setSpotifyCredentials(v.getSpotifyClientID(), "");
+                v.setSpotifyRefreshToken("");
+                _ui->clear(C_BG);
+                _ui->setTextColor(C_WHITE, C_BG);
+                _ui->drawCentreString("Saindo da conta...", CENTER_X, _ui->textY(FONT_LG, CENTER_Y), FONT_LG);
+                delay(800);
+                ESP.restart();
+            }
+            _confirmUntil = millis() + 3000;
+            drawAccountPanel();
+            break;
         case PANEL_BRIGHTNESS:
             if (rightBtn) {
                 Vault::getInstance().setBrightness(_brightness);
@@ -288,6 +328,15 @@ void SettingsView::onTap(uint16_t x, uint16_t y) {
             } else if (row >= 0 && row < (int)_devices.size() && !_devices[row].active) {
                 SpotifyPlayer::getInstance().transferTo(_devices[row].id);
                 drawRow(row, IconID::Phone, _ui->fitText(_devices[row].name, 150, FONT_MD).c_str(), "Conectando...", C_SECONDARY, false);
+            }
+            break;
+        case PANEL_UPDATE:
+            if (!rightBtn) break;
+            if (Updater::isNewer(SpotifyPlayer::getInstance().getLatestVersion().c_str(), VERSION)) {
+                UIViewManager::getInstance().gotoView(ViewID::Update);
+            } else {
+                SpotifyPlayer::getInstance().checkForUpdate();
+                UIViewManager::getInstance().showToast("Verificando...");
             }
             break;
         case PANEL_DIAG:
@@ -318,10 +367,18 @@ void SettingsView::handleMessage(SCUIMessage *msg) {
         case SCUIMessageType::UM_PLAYER_REFRESH:
             if (!_dirty && _panel == PANEL_DIAG) drawDiagPanel();
             break;
+        case SCUIMessageType::UM_UPDATE_STATUS:
+            if (_dirty) break;
+            if (_panel == PANEL_UPDATE) drawBody();
+            else if (_panel == PANEL_LIST) drawListRows();
+            if (_panel == PANEL_UPDATE && !msg->num)
+                UIViewManager::getInstance().showToast(msg->str[0] ? "Você já está na versão mais recente" : "Sem conexão com o servidor");
+            break;
         case SCUIMessageType::UM_IDLE:
             if (_confirmUntil && millis() > _confirmUntil) {
                 _confirmUntil = 0;
                 if (!_dirty && _panel == PANEL_WIFI) drawWifiPanel();
+                if (!_dirty && _panel == PANEL_ACCOUNT) drawAccountPanel();
             }
             break;
         default:

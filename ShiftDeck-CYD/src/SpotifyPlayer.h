@@ -70,6 +70,11 @@ public:
     const PlayingMetadata& getCurrentlyPlayingMetadata();
     unsigned long getLastRefreshMs();
 
+    // Firmware updates (Updater.h), run on the player task.
+    void checkForUpdate();              // posts UM_UPDATE_STATUS
+    void installUpdate();               // posts UM_UPDATE_PROGRESS; restarts on success
+    String getLatestVersion();          // "" until a check succeeded
+
     static String thumbPath(const String& url);     // LittleFS path of a cached thumbnail
     static String deviceTypeLabel(const String& spotifyType);
 
@@ -77,7 +82,8 @@ private:
     SpotifyPlayer();
 
     enum CmdType : uint8_t { CMD_PAUSE = 1, CMD_PLAY, CMD_NEXT, CMD_PREV, CMD_LIKE, CMD_PLAY_ITEM,
-                             CMD_SEARCH, CMD_PLAYLISTS, CMD_DEVICES, CMD_TRANSFER };
+                             CMD_SEARCH, CMD_PLAYLISTS, CMD_DEVICES, CMD_TRANSFER,
+                             CMD_CHECK_UPDATE, CMD_INSTALL_UPDATE };
     struct PlayerCmd {
         CmdType type;
         uint8_t kind;
@@ -95,6 +101,7 @@ private:
     void doDevices();
     bool doPlayItem(uint8_t kind, const String& uri, const String& contextUri);
     void checkLiked();
+    void doCheckUpdate();
     bool fetchNextThumbnail();
 
     QueueHandle_t *_pScuiQueue = nullptr;
@@ -106,6 +113,7 @@ private:
     String _currentTrackUri;
     String _userId;
     String _activeDeviceId;
+    String _latestVersion;      // guarded by _xSemaphoreDataCopy
     bool _isPlaying = false;
     bool _isCoverArtAvailable = false;
     bool _isMusicAvailable = false;

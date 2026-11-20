@@ -16,6 +16,8 @@ python3 "$PKG/tool-esptoolpy/esptool.py" --chip esp32 merge_bin -o flasher/firmw
   --flash_mode dio --flash_freq 40m --flash_size 4MB \
   0x1000 "$B/bootloader.bin" 0x8000 "$B/partitions.bin" \
   0xe000 "$PKG/framework-arduinoespressif32/tools/partitions/boot_app0.bin" 0x10000 "$B/firmware.bin"
+# App image alone: what Updater downloads over the air (src/Updater.h)
+cp "$B/firmware.bin" flasher/firmware/shiftdeck-app.bin
 for m in flasher/manifest-*.json; do
   sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"$VERSION\"/" "$m"
 done

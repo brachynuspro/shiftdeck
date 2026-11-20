@@ -1,5 +1,5 @@
 /*-------------------------------------------------------------------------------------------------
-** SpotifyConfigView.h - Step 2: enter the Spotify app's Client ID / Secret (QR = config page)
+** SpotifyConfigView.h - Step 2: enter the Spotify app's Client ID (QR = config page)
 ** ------------------------------------------------------------------------------------------------
 */
 #pragma once

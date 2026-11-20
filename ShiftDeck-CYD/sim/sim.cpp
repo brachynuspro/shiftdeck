@@ -23,6 +23,10 @@
 #include "Views/WiFiSetupView.h"
 #include "Views/SpotifyConfigView.h"
 #include "Views/SpotifyAuthView.h"
+#include "Views/WelcomeView.h"
+#include "Views/UpdateView.h"
+#include "Updater.h"
+#include <cassert>
 #include "SCLogger.h"
 
 // ------------------------------------------------------------ ILI9341 emulator
@@ -119,6 +123,7 @@ struct SimState {
     long progress = 95000, duration = 178000;
     std::vector<MediaItem> playlists, results;
     std::vector<DeviceInfo> devices;
+    String latest = "";
 } g;
 
 XPT2046Touch touch;
@@ -131,6 +136,9 @@ int Vault::getBrightness() { return _brightness; }
 void Vault::setBrightness(int v) { _brightness = v; }
 String Vault::getWiFiSSID() { return "Casa_5G"; }
 String Vault::getWiFiPassword() { return ""; }
+String Vault::getSpotifyClientID() { return "3f9a1c7e5b2d4e8f9a0b1c2d3e4f5a6b"; }
+void Vault::setSpotifyCredentials(const String&, const String&) {}
+void Vault::setSpotifyRefreshToken(const String&) {}
 void Vault::setWiFiCredentials(const String&, const String&) {}
 
 PlayingMetadata::PlayingMetadata() { clear(); }
@@ -148,6 +156,9 @@ void SpotifyPlayer::search(const String&) {}
 void SpotifyPlayer::fetchPlaylists() {}
 void SpotifyPlayer::fetchDevices() {}
 void SpotifyPlayer::transferTo(const String&) {}
+void SpotifyPlayer::checkForUpdate() {}
+void SpotifyPlayer::installUpdate() {}
+String SpotifyPlayer::getLatestVersion() { return g.latest; }
 bool SpotifyPlayer::isMusicAvailable() { return g.music; }
 bool SpotifyPlayer::isApiOnline() { return g.api; }
 bool SpotifyPlayer::isCoverArtReady() { return g.cover; }
@@ -313,18 +324,30 @@ int main(int argc, char** argv) {
     vm.home();
     vm.gotoView(ViewID::Settings);
     dump(out, "5a_settings");
-    tap(&settings, 160, 34 + 35 + 10);                // Brilho
+    tap(&settings, 160, 34 + 2 * 29 + 10);            // Brilho
     dump(out, "5b_settings_brightness");
     tap(&settings, 20, 16);                           // back to list
-    tap(&settings, 160, 34 + 2 * 35 + 10);            // Dispositivo
+    tap(&settings, 160, 34 + 3 * 29 + 10);            // Dispositivo
     send(&settings, SCUIMessageType::UM_DEVICES_DONE, 3);
     dump(out, "5c_settings_device");
     tap(&settings, 20, 16);
-    tap(&settings, 160, 34 + 4 * 35 + 10);            // Diagnóstico
+    tap(&settings, 160, 34 + 5 * 29 + 10);            // Diagnóstico
     dump(out, "5d_settings_diag");
     tap(&settings, 20, 16);
-    tap(&settings, 160, 34 + 0 * 35 + 10);            // Wi-Fi
+    tap(&settings, 160, 34 + 0 * 29 + 10);            // Wi-Fi
     dump(out, "5e_settings_wifi");
+    tap(&settings, 20, 16);
+    g.latest = "9.9.9";                               // a newer version is published
+    tap(&settings, 160, 34 + 4 * 29 + 10);            // Atualização
+    dump(out, "5f_settings_update");
+    tap(&settings, 20, 16);
+    tap(&settings, 160, 34 + 1 * 29 + 10);            // Conta Spotify
+    dump(out, "5g_settings_account");
+    g.latest = VERSION;
+
+    // version comparison used by the updater
+    assert(Updater::isNewer("1.2.10", "1.2.9") && Updater::isNewer("2.0.0", "1.9.9") && Updater::isNewer("1.3", "1.2.9"));
+    assert(!Updater::isNewer("1.2.2", "1.2.2") && !Updater::isNewer("1.2.1", "1.2.2") && !Updater::isNewer("", "1.2.2"));
 
     // 6. empty / offline states
     g.music = false; g.cover = false; g.api = false;
@@ -351,5 +374,23 @@ int main(int argc, char** argv) {
     dump(out, "7c_setup_oauth");
     auth.showError("Confira o Client ID");
     dump(out, "7d_setup_oauth_error");
+
+    // 8. first boot presentation and firmware update
+    WelcomeView welcome(&ui);
+    welcome.draw();
+    dump(out, "8a_welcome");
+    welcome.showPage(1);
+    welcome.draw();
+    dump(out, "8b_welcome_requirements");
+    UpdateView upd(&ui);
+    upd.preview("1.3.0", -1);
+    upd.draw();
+    dump(out, "9a_update_prompt");
+    upd.preview("1.3.0", 42);
+    upd.draw();
+    dump(out, "9b_update_progress");
+    upd.preview("1.3.0", 0, "Falha no download");
+    upd.draw();
+    dump(out, "9c_update_failed");
     return 0;
 }

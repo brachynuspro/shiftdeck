@@ -56,6 +56,8 @@
 #include "Views/SearchView.h"
 #include "Views/PlaylistView.h"
 #include "Views/SettingsView.h"
+#include "Views/WelcomeView.h"
+#include "Views/UpdateView.h"
 #include "CertBundle.h"
 
 TFT_eSPI       tft = TFT_eSPI();
@@ -74,6 +76,8 @@ HomeView*      homeView  = nullptr;
 SearchView*    searchView= nullptr;
 PlaylistView*  plView    = nullptr;
 SettingsView*  setView   = nullptr;
+WelcomeView*   welcomeView = nullptr;
+UpdateView*    updateView  = nullptr;
 
 QueueHandle_t scuiQueue;
 TaskHandle_t  uiTaskHandle;
@@ -101,6 +105,7 @@ void uiHandlerTask(void *pvParams);
 void runOAuthFlow();
 void waitInSetupPortal(bool spotify);
 void checkFactoryResetButton();
+void handleTouchInput();
 void gpioMonitorTask(void *pvParams);
 
 // Reset button pin and enable flag. We use the BOOT button on
@@ -233,6 +238,8 @@ void setup() {
     searchView    = new SearchView(&displayUI);
     plView        = new PlaylistView(&displayUI);
     setView       = new SettingsView(&displayUI);
+    welcomeView   = new WelcomeView(&displayUI);
+    updateView    = new UpdateView(&displayUI);
 
     viewMgr.setDisplayUI(&displayUI);
     viewMgr.registerView(ViewID::Boot, bootView);
@@ -240,6 +247,19 @@ void setup() {
     viewMgr.registerView(ViewID::Search, searchView);
     viewMgr.registerView(ViewID::Playlist, plView);
     viewMgr.registerView(ViewID::Settings, setView);
+    viewMgr.registerView(ViewID::Welcome, welcomeView);
+    viewMgr.registerView(ViewID::Update, updateView);
+
+    // Fresh install (nothing saved yet): present the product and its requirements,
+    // then go straight to the Wi-Fi step. waitInSetupPortal() never returns.
+    if (vault.getWiFiSSID().isEmpty() && vault.getSpotifyRefreshToken().isEmpty()) {
+        viewMgr.gotoView(ViewID::Welcome);
+        while (!welcomeView->done()) {
+            handleTouchInput();
+            delay(10);
+        }
+        waitInSetupPortal(false);
+    }
 
     // ======================================================================
     // Boot checklist (IMGS/inicializacao.png): every row reflects a real check
@@ -280,7 +300,7 @@ void setup() {
 
     // ---- Backend: Spotify app credentials + account token ----
     String cid = vault.getSpotifyClientID();
-    if (cid.isEmpty() || cid.startsWith("your_") || vault.getAppsScriptUrl().isEmpty()) {
+    if (cid.isEmpty() || cid.startsWith("your_")) {
         spLogI(LOGTAG_BOOT, "Spotify credentials not configured");
         bootView->setStep(BootView::STEP_BACKEND, BootView::FAILED, "Não configurado");
         delay(1200);
@@ -350,28 +370,17 @@ void runOAuthFlow() {
     // Block waiting for auth
     String authCode = fetchSpotifyAuthCode();
     if (!authCode.isEmpty()) {
-        String redirectUri = vault.getAppsScriptUrl();
+        String redirectUri = OAUTH_REDIRECT_URI;
         String cid = vault.getSpotifyClientID();
-        String cse = vault.getSpotifyClientSecret();
 
-        spLogI(LOGTAG_BOOT, "Exchanging code (%d chars)...", authCode.length());
-        spLogI(LOGTAG_BOOT, "Apps Script URL: %s", redirectUri.c_str());
-        // Log first 4 chars of each credential for future mismatch debugging
-        // without leaking the full secret.
-        String cidHint = cid.length() >= 4 ? cid.substring(0, 4) : cid;
-        String cseHint = cse.length() >= 4 ? cse.substring(0, 4) : cse;
-        spLogI(LOGTAG_BOOT, "Client ID prefix: %s... (%u chars)", cidHint.c_str(), (unsigned)cid.length());
-        spLogI(LOGTAG_BOOT, "Client Secret prefix: %s... (%u chars)", cseHint.c_str(), (unsigned)cse.length());
+        spLogI(LOGTAG_BOOT, "Exchanging code (%d chars), client id %u chars", authCode.length(), (unsigned)cid.length());
 
-        // Direct HTTP POST - avoids library's 500-byte buffer overflow
-        // Spotify auth codes can be up to ~600 chars. ALL form fields must
-        // be percent-encoded — Client Secret is base64 so it often
-        // contains '+', '/' or '=' which would otherwise corrupt the form.
+        // PKCE: the verifier replaces the Client Secret. All fields percent-encoded.
         String body = "grant_type=authorization_code"
                       "&code=" + urlEncode(authCode) +
                       "&redirect_uri=" + urlEncode(redirectUri) +
                       "&client_id=" + urlEncode(cid) +
-                      "&client_secret=" + urlEncode(cse);
+                      "&code_verifier=" + urlEncode(spotifyCodeVerifier());
         
         WiFiClientSecure ssl;
         // Root CA bundle, not the old pinned DigiCert G2 root: Spotify moved
@@ -388,7 +397,6 @@ void runOAuthFlow() {
 
         if (status == 200) {
             String response = http.getString();
-            spLogI(LOGTAG_BOOT, "Response body: %s", response.substring(0, 200).c_str());
             http.end();
 
             JsonDocument doc;
@@ -397,7 +405,7 @@ void runOAuthFlow() {
             const char* accessToken = doc["access_token"];
 
             if (refreshToken && strlen(refreshToken) > 5) {
-                spLogI(LOGTAG_BOOT, "SUCCESS! Refresh token: %d chars, first 4: %.4s", strlen(refreshToken), refreshToken);
+                spLogI(LOGTAG_BOOT, "Authorized: refresh token %d chars", strlen(refreshToken));
                 Vault::getInstance().setSpotifyRefreshToken(String(refreshToken));
 
                 // Brief delay to ensure LittleFS commit is fully flushed
@@ -409,7 +417,6 @@ void runOAuthFlow() {
                 spotifyPlayer.isRefreshTokenAvailable();   // setup() logs in next
             } else {
                 spLogE(LOGTAG_BOOT, "No refresh_token in response");
-                spLogE(LOGTAG_BOOT, "Response: %s", response.c_str());
 
                 // Show error on screen and restart, symmetric with the
                 // HTTP-error branch below. Previously this was a silent
@@ -553,6 +560,15 @@ void dispatchSCUIQueueMessages() {
     }
 
     if (msg.type == SCUIMessageType::UM_TOAST) viewMgr.showToast(msg.str);
+    // A newer firmware was found: ask once per version, and only over Home (never mid-task).
+    if (msg.type == SCUIMessageType::UM_UPDATE_STATUS && msg.num == 1) {
+        static char prompted[sizeof(msg.str)] = "";
+        UIView* v = viewMgr.getActiveView();
+        if (strcmp(prompted, msg.str) != 0 && v && v->getID() == ViewID::Home) {
+            strlcpy(prompted, msg.str, sizeof(prompted));
+            viewMgr.gotoView(ViewID::Update);
+        }
+    }
     viewMgr.tick();
     UIView* view = viewMgr.getActiveView();
     if (view) view->handleMessage(&msg);

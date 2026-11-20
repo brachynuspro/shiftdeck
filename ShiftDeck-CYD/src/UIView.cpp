@@ -5,6 +5,7 @@
 #include "UIView.h"
 #include "SpotifyPlayer.h"
 #include <WiFi.h>
+#include <qrcode.h>
 
 void UIView::handleMessage(SCUIMessage *msg) {
     if (msg->type == SCUIMessageType::UM_MARK_DIRTY) _dirty = true;
@@ -78,4 +79,20 @@ void UIView::drawBackHeader(const char* title, int32_t h) {
     _ui->drawIcon(IconID::ArrowLeft, 22, h / 2, 20, C_WHITE, C_BG);
     _ui->setTextColor(C_WHITE, C_BG);
     _ui->drawString(title, 42, _ui->textY(FONT_LG, h / 2), FONT_LG);
+}
+
+// Dark modules on the white card the caller painted (inverted QRs fail on some phones).
+void UIView::drawQR(int32_t x, int32_t y, int32_t box, const String& text) {
+    if (text.isEmpty()) return;
+    QRCode qr;
+    uint8_t buf[384];
+    int res = -1;
+    for (uint8_t v = 3; v <= 6 && res != 0; v++)
+        if (qrcode_getBufferSize(v) <= (int)sizeof(buf)) res = qrcode_initText(&qr, buf, v, ECC_LOW, text.c_str());
+    if (res != 0) return;
+    int32_t m = (box - 16) / qr.size;               // >= 8 px of white quiet zone per side
+    int32_t ox = x + (box - m * qr.size) / 2, oy = y + (box - m * qr.size) / 2;
+    for (uint8_t r = 0; r < qr.size; r++)
+        for (uint8_t c = 0; c < qr.size; c++)
+            if (qrcode_getModule(&qr, c, r)) _ui->fillRect(ox + c * m, oy + r * m, m, m, C_BG);
 }

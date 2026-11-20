@@ -78,7 +78,7 @@ lib_deps =
 
 # Particionamento
 board_build.partitions = partitions/cyd_4mb.csv
-# 3MB app (0x10000-0x310000) + 1MB spiffs/LittleFS (0x310000-0x400000)
+# 2 x 1,75MB app (OTA) + 448KB LittleFS (0x390000-0x400000)
 ```
 
 ### Esptool (interno do PlatformIO)
@@ -92,126 +92,42 @@ O PlatformIO gerencia o esptool automaticamente. Configuracoes:
 | Flash | 4 MB |
 | Velocidade upload | 460800 baud |
 | Porta | /dev/cu.usbserial-1440 (CH340) |
-| MAC | d4:8a:fc:a7:bc:98 |
+
+### Gravar depois de uma atualizacao OTA
+
+Depois que a placa se atualiza sozinha, ela passa a dar boot pelo `app1`. Gravar so o app em
+`0x10000` (app0) nao muda nada. Use `pio run -t upload` (que tambem grava `boot_app0.bin` em
+`0xe000`) ou inclua esse arquivo no esptool:
+
+```bash
+esptool.py --chip esp32 write_flash -z \
+  0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+  0x10000 .pio/build/cyd/firmware.bin
+```
 
 ### Particionamento (cyd_4mb.csv)
 
 ```
-# Name,   Type, SubType, Offset,  Size, Flags
-nvs,      data, nvs,     0x9000,  0x5000,
-otadata,  data, ota,     0xe000,  0x2000,
-app0,     app,  ota_0,   0x10000, 0x300000,
-spiffs,   data, spiffs,  0x310000,0xF0000,
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1C0000,
+app1,     app,  ota_1,   0x1D0000, 0x1C0000,
+spiffs,   data, spiffs,  0x390000, 0x70000,
 ```
 
 ---
 
-## 2. Clasp (Google Apps Script CLI)
+## 2. Login do Spotify (pagina de retorno)
 
-### Instalacao
+O Spotify so devolve o login para enderecos HTTPS publicos, e a placa serve HTTP na rede local.
+A pagina estatica `ShiftDeck-CYD/flasher/callback.html` (publicada junto com o instalador) recebe
+`?code=...&state=<IP da placa>` e manda o navegador para `http://<IP>/code?code=...`.
 
-```bash
-npm install @google/clasp --prefix ~/.local
-```
-
-**Binario**: `~/.local/node_modules/.bin/clasp`
-
-### Autenticacao
-
-```bash
-~/.local/node_modules/.bin/clasp login --no-localhost
-```
-
-1. Abrir a URL exibida no terminal no navegador
-2. Autorizar o clasp a acessar o Google Apps Script
-3. Copiar o codigo de autorizacao do navegador
-4. Colar no terminal
-
-Credenciais salvas em `~/.clasprc.json`.
-
-### Comandos Essenciais
-
-| Comando | Descricao |
-|---|---|
-| `clasp login --no-localhost` | Autenticar no Google |
-| `clasp clone <SCRIPT_ID>` | Baixar projeto existente |
-| `clasp pull` | Baixar ultima versao do servidor |
-| `clasp push` | Subir alteracoes locais |
-| `clasp deploy -d "descricao"` | Criar novo deploy |
-| `clasp deployments` | Listar todos os deploys |
-| `clasp deploy --deploymentId <ID>` | Atualizar deploy existente |
-| `clasp status` | Verificar status do projeto |
-| `clasp open` | Abrir no editor web |
-
-### Workflow Completo de Update
-
-```bash
-cd appscript
-
-# 1. Puxar versao mais recente (opcional)
-~/.local/node_modules/.bin/clasp pull
-
-# 2. Editar o codigo
-vim Codigo.js
-
-# 3. Subir alteracoes
-~/.local/node_modules/.bin/clasp push
-
-# 4. Criar novo deploy
-~/.local/node_modules/.bin/clasp deploy -d "descricao da mudanca"
-
-# Output:
-# Deployed AKfycbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx @N
-
-# 5. Verificar deploys ativos
-~/.local/node_modules/.bin/clasp deployments
-```
-
-### Script ID do Projeto
-
-```
-<SEU_SCRIPT_ID>   # fica em appscript/.clasp.json, que nao vai para o git
-```
-
-### Estrutura do Projeto Apps Script
-
-```
-appscript/
-├── .clasp.json          # Configuracao do clasp (script ID, root)
-├── appsscript.json      # Configuracao do projeto (runtime, webapp)
-└── Codigo.js            # Codigo fonte (doGet, handlers)
-```
-
-### appsscript.json
-
-```json
-{
-  "timeZone": "America/Sao_Paulo",
-  "dependencies": {},
-  "exceptionLogging": "STACKDRIVER",
-  "runtimeVersion": "V8",
-  "webapp": {
-    "executeAs": "USER_DEPLOYING",
-    "access": "ANYONE_ANONYMOUS"
-  }
-}
-```
-
-### Historico de Deploys
-
-Cada `clasp deploy` gera um Deployment ID (`AKfycb...`). Liste com `clasp deployments`.
-
-### URL do Web App
-
-```
-https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec
-```
-
-E essa URL que vai no campo "Apps Script URL" da pagina de configuracao da ShiftDeck e nas Redirect URIs do app no Spotify Dashboard.
-
-Esta URL deve estar:
-1. No campo `apps_script_url` do dispositivo (config.json)
-2. Nas **Redirect URIs** do Spotify Dashboard
+- URL fixa (Redirect URI do app no Spotify): `https://brachynuspro.github.io/shiftdeck-flasher/callback.html`
+- No firmware: `OAUTH_REDIRECT_URI` em `src/config.h`.
+- So aceita IPs de rede local (10.x, 172.16-31.x, 192.168.x) no `state`.
+- Substituiu a ponte antiga no Google Apps Script (removida na 1.3.0).
 
 ---
 
@@ -271,10 +187,10 @@ https://developer.spotify.com/dashboard
 
 1. Acessar o dashboard
 2. Criar um App (ou usar existente)
-3. Copiar **Client ID** e **Client Secret**
-4. Em **Settings** → **Redirect URIs** → adicionar a URL do Apps Script (@8):
+3. Copiar o **Client ID** (o Client Secret nao e usado: login PKCE)
+4. Em **Settings** → **Redirect URIs** → adicionar:
    ```
-   https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec
+   https://brachynuspro.github.io/shiftdeck-flasher/callback.html
    ```
 5. Clicar **Save**
 
@@ -284,8 +200,6 @@ https://developer.spotify.com/dashboard
 2. Acessar `http://<IP_DO_ESP>/` (ex: `http://192.168.0.19`)
 3. Preencher:
    - **Client ID**
-   - **Client Secret**
-   - **Apps Script URL** (URL @8 acima)
 4. Salvar → Dispositivo reinicia
 
 ---
@@ -303,16 +217,6 @@ https://developer.spotify.com/dashboard
 │  │ 2. pio run (verificar compilacao)                      │ │
 │  │ 3. pio run --target upload --upload-port PORT          │ │
 │  │ 4. Verificar logs seriais                              │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  MUDANCA NO APPS SCRIPT                                     │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ 1. cd appscript/                                        │ │
-│  │ 2. Editar Codigo.js                                     │ │
-│  │ 3. clasp push                                           │ │
-│  │ 4. clasp deploy -d "descricao"                          │ │
-│  │ 5. Atualizar URL no Spotify Dashboard (se mudou)        │ │
-│  │ 6. Reconfigurar dispositivo com nova URL (se mudou)     │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  MUDANCA NOS DADOS (LittleFS)                                │
@@ -354,22 +258,5 @@ ls /dev/cu.*
 # Deve listar /dev/cu.usbserial-1440
 ```
 
-### Erro: clasp nao autenticado
-```bash
-# Verificar credenciais
-cat ~/.clasprc.json
-# Reautenticar
-~/.local/node_modules/.bin/clasp login --no-localhost
-```
-
-### Erro: deploy read-only
-```bash
-# Listar deployments existentes
-~/.local/node_modules/.bin/clasp deployments
-# Criar NOVO deploy em vez de atualizar
-~/.local/node_modules/.bin/clasp deploy -d "descricao"
-```
-
 ### Erro: redirect_uri mismatch no Spotify
-- Verificar se a URL do Apps Script no Spotify Dashboard **bate exatamente** com a configurada no dispositivo
-- Atualizar ambos se necessario
+- A Redirect URI do app no Spotify Dashboard precisa ser **exatamente** `https://brachynuspro.github.io/shiftdeck-flasher/callback.html`

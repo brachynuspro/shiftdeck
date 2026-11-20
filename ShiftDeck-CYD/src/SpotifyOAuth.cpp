@@ -11,6 +11,8 @@
 #include "Views/SpotifyAuthView.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <mbedtls/base64.h>
+#include <mbedtls/sha256.h>
 
 extern DisplayUI displayUI;
 extern SpotifyAuthView* spotifyAuthView;
@@ -18,6 +20,28 @@ extern SpotifyAuthView* spotifyAuthView;
 static WebServer* s_server = nullptr;
 static String s_authCode = "";
 static bool s_codeReceived = false;
+static String s_verifier, s_challenge;   // PKCE pair of the current session
+
+// base64url(SHA-256(verifier)) without padding (RFC 7636 S256).
+static String pkceChallenge(const String& verifier) {
+    uint8_t hash[32];
+    mbedtls_sha256((const unsigned char*)verifier.c_str(), verifier.length(), hash, 0);
+    unsigned char b64[48];
+    size_t n = 0;
+    mbedtls_base64_encode(b64, sizeof(b64), &n, hash, sizeof(hash));
+    String out;
+    for (size_t i = 0; i < n && b64[i] != '='; i++) out += b64[i] == '+' ? '-' : b64[i] == '/' ? '_' : (char)b64[i];
+    return out;
+}
+
+static String newVerifier() {
+    static const char CS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    String v;
+    for (int i = 0; i < 64; i++) v += CS[esp_random() % (sizeof(CS) - 1)];   // hardware RNG (radio on)
+    return v;
+}
+
+String spotifyCodeVerifier() { return s_verifier; }
 
 static String urlEncode(const String& str) {
     String encoded;
@@ -75,11 +99,10 @@ input:focus{outline:none;border-color:#1ED760}
 }
 
 static void serveRoot() {
-    String appsScriptUrl = Vault::getInstance().getAppsScriptUrl();
     String clientId = Vault::getInstance().getSpotifyClientID();
     String espIP = WiFi.localIP().toString();
 
-    String encodedRedirect = urlEncode(appsScriptUrl);
+    String encodedRedirect = urlEncode(OAUTH_REDIRECT_URI);
     String encodedState = urlEncode(espIP);
     String scope = urlEncode("user-read-playback-state user-modify-playback-state "
                              "user-read-currently-playing playlist-read-private "
@@ -91,6 +114,7 @@ static void serveRoot() {
                         "&response_type=code" +
                         "&redirect_uri=" + encodedRedirect +
                         "&state=" + encodedState +
+                        "&code_challenge_method=S256&code_challenge=" + s_challenge +
                         "&scope=" + scope;
 
     String msg;
@@ -115,10 +139,8 @@ static void serveSaveCode() {
     }
 }
 
-// Handler for the legacy Apps Script template (appscript_template.gs)
-// which auto-redirects the browser to /code?code=XXX instead of showing
-// a form. Accept the same "code" argument and process it like the POST
-// /savecode endpoint so both flows work.
+// The login return page (OAUTH_REDIRECT_URI, flasher/callback.html) sends the
+// browser here with the code; same result as pasting it into /savecode.
 static void serveCode() {
     if (s_server->hasArg("code") && !s_server->arg("code").isEmpty()) {
         s_authCode = s_server->arg("code");
@@ -140,24 +162,24 @@ static void serveCode() {
 }
 
 String fetchSpotifyAuthCode() {
-    if (Vault::getInstance().getAppsScriptUrl().isEmpty()) {
-        spLogE(LOGTAG_PLAYER, "Apps Script URL not configured");
-        return "";
-    }
-
     s_authCode = "";
     s_codeReceived = false;
+    // RFC 7636 appendix B test vector: a wrong hash/encoding would only show up as a 400 later.
+    if (pkceChallenge("dBjftJeZ4CVP-mJ92K9qO0X9vgpthM3mU8rT5NAqWNc") != "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+        spLogE(LOGTAG_PLAYER, "PKCE self-test FAILED");
+    s_verifier = newVerifier();
+    s_challenge = pkceChallenge(s_verifier);
 
     WebServer server(80);
     s_server = &server;
     server.on("/", serveRoot);
     server.on("/savecode", HTTP_POST, serveSaveCode);
-    // Legacy Apps Script flow redirects to /code?code=XXX — accept it too.
+    // callback.html redirects here with ?code=...
     server.on("/code", HTTP_GET, serveCode);
     server.on("/reconfig", []() {
         // Reset spotify credentials and restart
-        Vault::getInstance().setAppsScriptUrl("");
         Vault::getInstance().setSpotifyRefreshToken("");
+        Vault::getInstance().setSpotifyCredentials("", "");   // back to the credentials step
         Vault::getInstance().save();
         s_server->send(200, "text/html", "<html><body style='background:#121212;color:#fff;font-family:sans-serif;text-align:center;padding-top:30vh'><h1 style='color:#1ED760'>Reiniciando...</h1><p>Reconfigure o dispositivo</p></body></html>");
         delay(1000);

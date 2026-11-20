@@ -7,6 +7,7 @@
 #include <LittleFS.h>
 #include "logTags.h"
 #include "SCLogger.h"
+#include "iTunesProxy.h"   // FsLock
 
 #define CONFIG_FILE "/config.json"
 #define CONFIG_FILE_TMP "/config.json.tmp"
@@ -22,7 +23,6 @@ Vault& Vault::getInstance() {
 void Vault::initialize() {
     _spotifyClientId = DEFAULT_SPOTIFY_CLIENT_ID;
     _spotifyClientSecret = DEFAULT_SPOTIFY_CLIENT_SECRET;
-    _appsScriptUrl = "";
     load();
 }
 
@@ -51,7 +51,6 @@ void Vault::load() {
     if (!doc["spotify_refresh_token"].isNull()) _spotifyRefreshToken = doc["spotify_refresh_token"].as<String>();
     if (!doc["spotify_client_id"].isNull()) _spotifyClientId = doc["spotify_client_id"].as<String>();
     if (!doc["spotify_client_secret"].isNull()) _spotifyClientSecret = doc["spotify_client_secret"].as<String>();
-    if (!doc["apps_script_url"].isNull()) _appsScriptUrl = doc["apps_script_url"].as<String>();
     if (!doc["brightness"].isNull()) _brightness = doc["brightness"].as<int>();
     if (!doc["timezone"].isNull()) _timezone = doc["timezone"].as<String>();
     if (!doc["touch_calibrated"].isNull()) _touchCalibrated = doc["touch_calibrated"].as<bool>();
@@ -60,8 +59,8 @@ void Vault::load() {
     if (!doc["touch_raw_x2"].isNull()) _touchRawX2 = doc["touch_raw_x2"].as<int16_t>();
     if (!doc["touch_raw_y2"].isNull()) _touchRawY2 = doc["touch_raw_y2"].as<int16_t>();
 
-    spLogI(LOGTAG_GENERAL, "Vault::load - refresh_token length=%d, client_id set=%d, apps_script_url set=%d",
-           _spotifyRefreshToken.length(), _spotifyClientId != DEFAULT_SPOTIFY_CLIENT_ID, !_appsScriptUrl.isEmpty());
+    spLogI(LOGTAG_GENERAL, "Vault::load - refresh_token length=%d, client_id set=%d",
+           _spotifyRefreshToken.length(), _spotifyClientId != DEFAULT_SPOTIFY_CLIENT_ID);
 }
 
 void Vault::save() {
@@ -71,7 +70,6 @@ void Vault::save() {
     doc["spotify_refresh_token"] = _spotifyRefreshToken;
     doc["spotify_client_id"] = _spotifyClientId;
     doc["spotify_client_secret"] = _spotifyClientSecret;
-    doc["apps_script_url"] = _appsScriptUrl;
     doc["brightness"] = _brightness;
     doc["timezone"] = _timezone;
     doc["touch_calibrated"] = _touchCalibrated;
@@ -83,6 +81,8 @@ void Vault::save() {
     // Atomic write: write to a temp file, verify it parses back correctly,
     // then replace the real config file. This avoids corrupting config.json
     // if power is lost mid-write (a real risk in a car).
+    // Also called from the player task (rotated refresh token): hold the LittleFS lock.
+    FsLock fs(pdMS_TO_TICKS(5000));
     File f = LittleFS.open(CONFIG_FILE_TMP, "w");
     if (!f) {
         spLogE(LOGTAG_GENERAL, "Vault::save - failed to open %s for write", CONFIG_FILE_TMP);
@@ -139,7 +139,6 @@ void Vault::factoryReset() {
     _spotifyRefreshToken = "";
     _spotifyClientId = DEFAULT_SPOTIFY_CLIENT_ID;
     _spotifyClientSecret = DEFAULT_SPOTIFY_CLIENT_SECRET;
-    _appsScriptUrl = "";
     _brightness = 80;
     _timezone = "UTC-3";
     _touchCalibrated = false;
@@ -151,6 +150,7 @@ void Vault::factoryReset() {
 
 String Vault::getSpotifyClientID() { return _spotifyClientId; }
 String Vault::getSpotifyClientSecret() { return _spotifyClientSecret; }
+bool Vault::hasSpotifyClientSecret() { return _spotifyClientSecret.length() && !_spotifyClientSecret.startsWith("your_"); }
 void Vault::setSpotifyCredentials(const String& clientId, const String& clientSecret) {
     _spotifyClientId = clientId;
     _spotifyClientSecret = clientSecret;
@@ -162,11 +162,6 @@ void Vault::setSpotifyRefreshToken(const String& token) {
     save();
 }
 
-String Vault::getAppsScriptUrl() { return _appsScriptUrl; }
-void Vault::setAppsScriptUrl(const String& url) {
-    _appsScriptUrl = url;
-    save();
-}
 
 String Vault::getWiFiSSID() { return _wifiSSID; }
 String Vault::getWiFiPassword() { return _wifiPassword; }

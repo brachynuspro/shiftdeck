@@ -44,6 +44,9 @@ WiFiSetup& WiFiSetup::getInstance() {
 void WiFiSetup::startCaptivePortal() {
     spLogI(LOGTAG_WIFI, "Starting AP: %s password: %s", AP_SSID, AP_PASSWORD);
     WiFi.mode(WIFI_AP);
+    // The phone is centimetres away; full TX power only adds current peaks that make
+    // weak USB hubs cut power (the board restarted right here on a 500 mA hub).
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
 
     IPAddress apIP = WiFi.softAPIP();

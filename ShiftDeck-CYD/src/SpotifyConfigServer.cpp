@@ -1,5 +1,5 @@
 /*-------------------------------------------------------------------------------------------------
-** SpotifyConfigServer.cpp - Web UI for Spotify Client ID & Secret
+** SpotifyConfigServer.cpp - Web UI for the Spotify Client ID (PKCE, no secret)
 ** ------------------------------------------------------------------------------------------------
 */
 #include "SpotifyConfigServer.h"
@@ -25,6 +25,12 @@ input:focus{outline:none;border-color:#1ED760}
 small{display:block;color:#666;font-size:10px;margin-top:4px}
 .btn{width:100%;padding:13px;background:#1ED760;color:#000;border:none;border-radius:6px;font-size:15px;font-weight:700;margin-top:20px;cursor:pointer}
 .btn:hover{background:#1ae660}
+.btn2{display:block;width:100%;padding:12px;background:#27292E;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;margin-top:10px;text-align:center;text-decoration:none;cursor:pointer}
+.step{color:#fff;font-size:13px;margin-top:18px}
+.step b{color:#1ED760}
+.row{display:flex;gap:8px;margin-top:6px}
+.row input{flex:1;font-size:12px}
+.row .btn2{width:auto;margin-top:0;padding:0 14px}
 .saved{text-align:center;padding:20px}
 .saved h1{margin-bottom:12px}
 .saved p{color:#B3B3B3;font-size:14px}
@@ -58,26 +64,30 @@ void SpotifyConfigServer::handleRoot() {
     String html = PAGE_HTML;
     html += R"raw(<div class="container">
 <h1>ShiftDeck</h1>
-<h2>Configurar Spotify</h2>
+<h2>Conectar o Spotify</h2>
 
-<small>Obtenha Client ID e Secret em: developer.spotify.com/dashboard</small>
+<div class="step"><b>1.</b> Abra o Spotify Dashboard e entre na sua conta.
+Crie um app (marque <b>Web API</b>) ou abra o que você já tem.</div>
+<a class="btn2" href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Abrir Spotify Dashboard</a>
+<a class="btn2" href=")raw" GUIDE_URL R"raw(" target="_blank" rel="noopener">Primeira vez? Guia passo a passo</a>
 
+<div class="step"><b>2.</b> No app, em <b>Settings</b> &rsaquo; Redirect URIs, adicione este endereço e salve:</div>
+<div class="row"><input id="ru" type="text" readonly value=")raw" OAUTH_REDIRECT_URI R"raw("><button class="btn2" type="button" onclick="cp(this)">Copiar</button></div>
+
+<div class="step"><b>3.</b> Ainda em Settings, copie o <b>Client ID</b> e cole aqui. O Client Secret não é necessário.</div>
 <form action="/save" method="POST">
 <label>Client ID</label>
-<input type="text" name="client_id" placeholder="Cole seu Client ID..." required>
-
-<label>Client Secret</label>
-<input type="password" name="client_secret" placeholder="Cole seu Client Secret..." required>
-
-<label style="margin-top:16px;color:#1ED760">Apps Script URL</label>
-<small>Obrigatorio para autenticacao segura</small>
-<small>Veja instrucoes no arquivo data/appscript_template.gs</small>
-<input type="text" name="apps_script_url" placeholder="https://script.google.com/macros/s/...">
+<input type="text" name="client_id" placeholder="Cole seu Client ID..." autocapitalize="off" autocorrect="off" required>
 
 <button class="btn" type="submit">Salvar e Conectar</button>
 </form>
-<div class="footer">ShiftDeck v1.0.0</div>
-</div></body></html>)raw";
+<div class="footer">ShiftDeck v)raw" VERSION R"raw(</div>
+</div>
+<script>
+// navigator.clipboard needs HTTPS; the board serves HTTP, so copy the old way.
+function cp(b){var i=document.getElementById("ru");i.select();i.setSelectionRange(0,999);
+try{document.execCommand("copy");b.textContent="Copiado!";}catch(e){b.textContent="Selecione";}}
+</script></body></html>)raw";
 
     _server.sendHeader("Cache-Control", "no-cache");
     _server.send(200, "text/html", html);
@@ -88,20 +98,14 @@ void SpotifyConfigServer::handleSave() {
         _server.send(400, "text/html", "Erro: Client ID obrigatorio. <a href='/'>Voltar</a>");
         return;
     }
-    if (!_server.hasArg("client_secret") || _server.arg("client_secret").isEmpty()) {
-        _server.send(400, "text/html", "Erro: Client Secret obrigatorio. <a href='/'>Voltar</a>");
-        return;
-    }
 
     String cid = _server.arg("client_id");
-    String cse = _server.arg("client_secret");
-    String asu = _server.hasArg("apps_script_url") ? _server.arg("apps_script_url") : "";
 
     spLogI(LOGTAG_GENERAL, "Saving Spotify credentials...");
 
     Vault& vault = Vault::getInstance();
-    vault.setSpotifyCredentials(cid, cse);
-    if (!asu.isEmpty()) vault.setAppsScriptUrl(asu);
+    cid.trim();
+    vault.setSpotifyCredentials(cid, "");   // PKCE: no secret on the board
 
     String html = R"raw(<div class="container saved">
 <h1 style="color:#1ED760">Salvo com sucesso!</h1>

@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------------------------------
 ** SettingsView.h - Settings screen (IMGS/config.png) and its detail panels
 **
-** The list and the five panels share the header ("<  Title") and the
+** The list and the six panels share the header ("<  Title") and the
 ** two-button footer. Brightness previews live and is only persisted on
 ** "Salvar"; leaving with "Voltar" restores the saved value.
 ** ------------------------------------------------------------------------------------------------
@@ -14,7 +14,7 @@
 
 class SettingsView : public UIView {
 public:
-    enum Panel : uint8_t { PANEL_LIST, PANEL_WIFI, PANEL_BRIGHTNESS, PANEL_DEVICE, PANEL_UPDATE, PANEL_DIAG };
+    enum Panel : uint8_t { PANEL_LIST, PANEL_WIFI, PANEL_ACCOUNT, PANEL_BRIGHTNESS, PANEL_DEVICE, PANEL_UPDATE, PANEL_DIAG };
     // Lets Home open "Dispositivo" directly.
     static void openPanelOnEnter(Panel p) { s_nextPanel = p; }
 
@@ -33,6 +33,7 @@ private:
     void drawBody();
     void drawListRows();
     void drawWifiPanel();
+    void drawAccountPanel();
     void drawBrightnessPanel();
     void drawBrightnessValue();
     void drawDevicePanel();
@@ -50,10 +51,10 @@ private:
     int16_t _knobX = -1;
     std::vector<DeviceInfo> _devices;
     bool _devicesLoaded = false;
-    unsigned long _confirmUntil = 0;   // "Trocar rede" asks for a second tap
+    unsigned long _confirmUntil = 0;   // "Trocar rede" / "Sair da conta" ask for a second tap
 
     static const int HEADER_H = 32;
-    static const int ROW_X = 8, ROW_Y = 34, ROW_W = 304, ROW_H = 30, ROW_PITCH = 35;
+    static const int ROW_X = 8, ROW_Y = 34, ROW_W = 304, ROW_H = 26, ROW_PITCH = 29;   // six list rows above the footer
     static const int FOOT_Y = 208, FOOT_H = 28, FOOT_W = 148;
     static const int SLIDER_X = 44, SLIDER_W = 232, SLIDER_CY = 140;
 };

@@ -49,11 +49,10 @@ ShiftDeck e um controlador inteligente para Spotify, similar ao Spotify Car Thin
 ```
 ShiftDeck-CYD/
 ├── platformio.ini              # Config build: ILI9341 driver, libs, pinos
-├── partitions/cyd_4mb.csv      # 3MB app + 1MB LittleFS
+├── partitions/cyd_4mb.csv      # 2 x 1,75MB app (OTA) + 448KB LittleFS
 ├── generate_compile_time.py    # Script pre-build
 ├── data/
-│   ├── default_cover.jpg       # Capa de album fallback
-│   └── appscript_template.gs   # Template Google Apps Script
+│   └── default_cover.jpg       # Capa de album fallback
 ├── src/
 │   ├── main.cpp                # Entry point, fluxo de boot, task handler
 │   ├── config.h                # Tema, cores, layout, defines
@@ -66,7 +65,7 @@ ShiftDeck-CYD/
 │   │
 │   ├── SpotifyPlayer.h/cpp     # Controle de playback, search, playlists
 │   ├── SpotifyArtMgr.h/cpp     # Cache LRU de capas de album
-│   ├── SpotifyOAuth.h/cpp      # Fluxo OAuth (Apps Script bridge)
+│   ├── SpotifyOAuth.h/cpp      # Fluxo OAuth (pagina de retorno no GitHub Pages)
 │   ├── SpotifyConfigServer.h/cpp # Pagina web de configuracao Spotify
 │   ├── SpotifyCertWrapper.h/cpp  # Certificados SSL
 │   ├── PlayingMetadata.h/cpp   # DTO de metadados da musica atual
@@ -198,8 +197,8 @@ ShiftDeck-CYD/
 │  │ ├── Yes → login() → skip to Home                             │ │
 │  │ └── No → OAuth screen → web page http://IP                   │ │
 │  │         → User opens → clique Autorizar → login Spotify     │ │
-│  │         → Apps Script (HTTPS) salva code                     │ │
-│  │         → User copia code → cola no form → POST /savecode    │ │
+│  │         → callback.html (GitHub Pages) → GET http://IP/code   │ │
+│  │           (ou: copia o code e cola no form → POST /savecode) │ │
 │  │         → ESP32: HTTP POST /api/token → refresh_token        │ │
 │  │         → Vault::save() → login() → HomeView                 │ │
 │  └─────────────────────────────────────────────────────────────┘ │
@@ -225,7 +224,7 @@ ShiftDeck-CYD/
 
 ### 2. Spotify Config
 - URL de configuracao no navegador
-- Input: Client ID, Client Secret, Apps Script URL
+- Input: Client ID (login PKCE, sem Client Secret; a pagina mostra a Redirect URI para cadastrar no Spotify)
 - Salva em config.json → restart
 
 ### 3. Boot (Splash)
@@ -262,33 +261,19 @@ ShiftDeck-CYD/
 
 ## Integracao Spotify
 
-### OAuth Flow (Google Apps Script Bridge)
+### OAuth Flow (pagina de retorno no GitHub Pages)
 
 ```
-Celular (Browser)                  ESP32                  Google Apps Script
-┌──────────────────┐             ┌──────────┐             ┌───────────────────┐
-│ http://ESP_IP     │───HTTP──→  │ WebServer│             │                   │
-│                   │             │ :80      │             │                   │
-│ AUTORIZAR SPOTIFY│             │ /        │             │                   │
-│     ↓             │             │ /savecode│             │                   │
-│ Spotify Login     │───HTTPS──→ accounts.spotify.com     │                   │
-│     ↓             │             └──────────┘             │                   │
-│ Redirect →        │───HTTPS──→                           │ ?code=XXX         │
-│                   │             ┌───────────────────────→│ &state=ESP_IP     │
-│                   │             │                        │                   │
-│                   │             │  Salva code            │                   │
-│                   │             │  Mostra na tela        │                   │
-│                   │             │                        │                   │
-│ Usuario copia     │             │                        │                   │
-│ code da tela      │             │                        │                   │
-│     ↓             │             │                        │                   │
-│ Cola no form      │───HTTP──→   │ POST /savecode         │                   │
-│                   │             │ code=XXX...            │                   │
-│                   │             │                        │                   │
-│                   │             │ HTTP POST              │                   │
-│                   │             │ /api/token → refresh   │                   │
-│                   │             │ accounts.spotify.com   │                   │
-└──────────────────┘             └──────────┘             └───────────────────┘
+Celular (navegador)                         ESP32 (WebServer :80)
+ 1. abre http://IP_DA_PLACA  ─────────────▶ /  (botao AUTORIZAR SPOTIFY)
+ 2. login em accounts.spotify.com
+    redirect_uri = https://brachynuspro.github.io/shiftdeck-flasher/callback.html
+    state        = IP_DA_PLACA
+ 3. callback.html le ?code&state (so aceita IP de rede local)
+    e redireciona ─────────────────────────▶ GET /code?code=XXX
+                                              ESP32: POST accounts.spotify.com/api/token
+                                              → refresh_token → Vault::save()
+ (alternativa: copiar o code e colar em POST /savecode)
 ```
 
 ### APIs Utilizadas
@@ -315,9 +300,8 @@ Celular (Browser)                  ESP32                  Google Apps Script
   "wifi_ssid": "MinhaRede",
   "wifi_pass": "minha_senha",
   "spotify_client_id": "SEU_CLIENT_ID",
-  "spotify_client_secret": "SEU_CLIENT_SECRET",
+  "spotify_client_secret": "",
   "spotify_refresh_token": "AQAB...",
-  "apps_script_url": "https://script.google.com/macros/s/AKfycb.../exec",
   "brightness": 80,
   "timezone": "UTC-3"
 }

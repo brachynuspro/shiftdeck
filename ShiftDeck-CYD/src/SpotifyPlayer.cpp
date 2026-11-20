@@ -16,6 +16,7 @@
 #include "Monitor.h"
 #include "iTunesProxy.h"
 #include "CertBundle.h"
+#include "Updater.h"
 
 #include <HTTPClient.h>
 #include <cstring>
@@ -124,10 +125,11 @@ bool SpotifyPlayer::ensureAccessToken() {
     http.begin(secureClient, "https://accounts.spotify.com/api/token");
     http.useHTTP10(true);
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    // client_secret is base64 and refresh tokens contain '+', '/', '=': encode all fields.
+    // PKCE setups refresh with the Client ID alone; setups from before v1.3.2 still
+    // hold a secret their refresh token was issued for. Encode every field.
     String body = "grant_type=refresh_token&refresh_token=" + urlEncode(_spotifyRefreshToken) +
-                  "&client_id=" + urlEncode(_spotifyClientId) +
-                  "&client_secret=" + urlEncode(_spotifyClientSecret);
+                  "&client_id=" + urlEncode(_spotifyClientId);
+    if (Vault::getInstance().hasSpotifyClientSecret()) body += "&client_secret=" + urlEncode(_spotifyClientSecret);
     int status = http.POST(body);
     if (status != 200) {
         spLogW(LOGTAG_PLAYER, "ensureAccessToken: status=%d", status);
@@ -143,6 +145,13 @@ bool SpotifyPlayer::ensureAccessToken() {
         return false;
     }
     _spotifyAccessToken = doc["access_token"].as<String>();
+    // PKCE refresh tokens rotate: keep the new one or the next boot cannot log in.
+    String rotated = doc["refresh_token"] | "";
+    if (rotated.length() > 10 && rotated != _spotifyRefreshToken) {
+        _spotifyRefreshToken = rotated;
+        Vault::getInstance().setSpotifyRefreshToken(rotated);
+        spotify.setRefreshToken(rotated.c_str());
+    }
     int expiresIn = doc["expires_in"] | 3600;
     _accessTokenExpiresAtMs = millis() + (unsigned long)(expiresIn - 60) * 1000UL;
     if (_spotifyAccessToken.length() > 0) spotify.setBearerToken(_spotifyAccessToken.c_str());
@@ -201,6 +210,7 @@ void SpotifyPlayer::enqueue(CmdType type, const String& arg, const String& arg2,
         if (type <= CMD_PREV) postScuiMessage(SCUIMessageType::UM_ACTION_RESULT, "", 0);
         if (type == CMD_SEARCH)    { _searchBusy = false;    postScuiMessage(SCUIMessageType::UM_SEARCH_DONE, "", -1); }
         if (type == CMD_PLAYLISTS) { _playlistsBusy = false; postScuiMessage(SCUIMessageType::UM_PLAYLISTS_DONE, "", -1); }
+        if (type == CMD_INSTALL_UPDATE) postScuiMessage(SCUIMessageType::UM_UPDATE_PROGRESS, "Tente de novo", -1);
     }
 }
 
@@ -235,6 +245,26 @@ void SpotifyPlayer::fetchPlaylists() {
 
 void SpotifyPlayer::fetchDevices()                   { enqueue(CMD_DEVICES); }
 void SpotifyPlayer::transferTo(const String& id)     { enqueue(CMD_TRANSFER, id); }
+void SpotifyPlayer::checkForUpdate()                 { enqueue(CMD_CHECK_UPDATE); }
+void SpotifyPlayer::installUpdate()                  { enqueue(CMD_INSTALL_UPDATE); }
+
+String SpotifyPlayer::getLatestVersion() {
+    String v;
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(1000))) {
+        v = _latestVersion;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    return v;
+}
+
+void SpotifyPlayer::doCheckUpdate() {
+    String v = Updater::latestVersion();
+    if (v.length() && xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(1000))) {
+        _latestVersion = v;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    postScuiMessage(SCUIMessageType::UM_UPDATE_STATUS, v.c_str(), v.length() && Updater::isNewer(v.c_str(), VERSION) ? 1 : 0);
+}
 
 /* ---------------------------------------------------------------- commands (Core 1 side) */
 
@@ -271,6 +301,23 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
         case CMD_SEARCH:    doSearch(cmd.arg); return false;
         case CMD_PLAYLISTS: doPlaylists();     return false;
         case CMD_DEVICES:   doDevices();       return false;
+        case CMD_CHECK_UPDATE: doCheckUpdate(); return false;
+        case CMD_INSTALL_UPDATE: {
+            static int lastPct;
+            lastPct = -1;
+            String err = Updater::install([](int done, int total) {
+                esp_task_wdt_reset();
+                int pct = total > 0 ? (int)((int64_t)done * 100 / total) : 0;
+                if (pct != lastPct) { lastPct = pct; getInstance().postScuiMessage(SCUIMessageType::UM_UPDATE_PROGRESS, "", pct); }
+            });
+            if (err.isEmpty()) {
+                postScuiMessage(SCUIMessageType::UM_UPDATE_PROGRESS, "", 100);
+                vTaskDelay(pdMS_TO_TICKS(1500));   // let "Reiniciando..." show
+                ESP.restart();
+            }
+            postScuiMessage(SCUIMessageType::UM_UPDATE_PROGRESS, err.c_str(), -1);
+            return false;
+        }
         case CMD_TRANSFER: {
             String body = String("{\"device_ids\":[\"") + cmd.arg + "\"],\"play\":true}";
             int st = api("PUT", String(API) + "/me/player", body);
@@ -694,7 +741,8 @@ void SpotifyPlayer::getCurrentlyPlayingCallback(CurrentlyPlaying currentlyPlayin
 
 void SpotifyPlayer::refreshCurrentSongTask(void *pvParameters) {
     SpotifyPlayer& p = SpotifyPlayer::getInstance();
-    unsigned long lastDevicesMs = 0;
+    unsigned long lastDevicesMs = 0, lastUpdateCheckMs = 0;
+    bool updateChecked = false;
     for (;;) {
         esp_task_wdt_reset();
         p.refreshCurrentTrack();
@@ -706,6 +754,11 @@ void SpotifyPlayer::refreshCurrentSongTask(void *pvParameters) {
         if (lastDevicesMs == 0 || millis() - lastDevicesMs > 30000) {
             p.doDevices();
             lastDevicesMs = millis();
+        }
+        if (!updateChecked || millis() - lastUpdateCheckMs > UPDATE_CHECK_MS) {
+            p.doCheckUpdate();
+            lastUpdateCheckMs = millis();
+            updateChecked = true;
         }
 
         // Until the next poll: run queued commands first, then fetch

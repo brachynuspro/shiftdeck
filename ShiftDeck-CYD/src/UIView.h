@@ -54,6 +54,9 @@ protected:
     void drawBrand(int32_t x, int32_t cy, float markH, uint8_t font);
     static int32_t brandMarkW(float markH) { return (int32_t)(markH * 34 / 30 + markH / 3); }   // mark + gap
 
+    // QR code of text centred in a box x box area (paint the white card first).
+    void drawQR(int32_t x, int32_t y, int32_t box, const String& text);
+
     // Two-line status item as in the mockups: icon, white title, coloured value.
     void drawStatusItem(int32_t x, int32_t cy, IconID icon, uint16_t iconColor, const char* title,
                         const char* value, uint16_t valueColor, uint16_t bg, int32_t maxW = 70);

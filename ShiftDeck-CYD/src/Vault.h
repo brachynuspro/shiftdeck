@@ -14,12 +14,12 @@ public:
 
     String getSpotifyClientID();
     String getSpotifyClientSecret();
+    // Only setups from before PKCE (v1.3.2) have one; their refresh token still needs it.
+    bool hasSpotifyClientSecret();
     void setSpotifyCredentials(const String& clientId, const String& clientSecret);
     String getSpotifyRefreshToken();
     void setSpotifyRefreshToken(const String& token);
 
-    String getAppsScriptUrl();
-    void setAppsScriptUrl(const String& url);
 
     String getWiFiSSID();
     String getWiFiPassword();
@@ -43,7 +43,6 @@ private:
     String _spotifyClientId;
     String _spotifyClientSecret;
     String _spotifyRefreshToken;
-    String _appsScriptUrl;
     String _wifiSSID;
     String _wifiPassword;
     int _brightness = 80;

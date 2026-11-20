@@ -35,5 +35,4 @@ private:
     int _step;
     const char *_title, *_subtitle, *_footer;
     void drawRow(int i);
-    void drawQR(int32_t x, int32_t y, int32_t box);
 };

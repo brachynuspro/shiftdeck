@@ -8,9 +8,19 @@
 #include <Arduino.h>
 
 #define APP_NAME "ShiftDeck"
-#define VERSION  "1.2.2"
-#define VERSION_SHORT "v1.2"
+#define VERSION  "1.3.2"
+#define VERSION_SHORT "v1.3"
 #define BOARD_NAME "ESP32-2432S028"
+
+// Updates come from the public web installer: manifest-update.json ("version")
+// and firmware/shiftdeck-app.bin (app image only), published by tools/release.sh.
+#define UPDATE_BASE_URL "https://brachynuspro.github.io/shiftdeck-flasher/"
+#define UPDATE_CHECK_MS (6UL * 3600UL * 1000UL)
+// Phone guide to create the Spotify app (flasher/guia.html). No ".html": keeps the QR at version 3.
+#define GUIDE_URL UPDATE_BASE_URL "guia"
+// Spotify login return page (flasher/callback.html): forwards the code to http://<board IP>/code.
+// Must be registered, exactly, as a Redirect URI of the user's Spotify app.
+#define OAUTH_REDIRECT_URI UPDATE_BASE_URL "callback.html"
 
 #define SPOTIFY_MARKET "BR"
 #define SPOTIFY_ESPOTIFIER_NODE_NAME "shiftdeck"
@@ -84,5 +94,7 @@ enum class ViewID : uint8_t {
     Home = 1,
     Search = 2,
     Playlist = 3,
-    Settings = 4
+    Settings = 4,
+    Welcome = 5,
+    Update = 6
 };

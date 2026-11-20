@@ -25,6 +25,18 @@ Mostra a música que está tocando com capa e progresso, controla play/pause/pr�
 <td align="center"><img src="docs/screens/dispositivos.png" width="320"><br><sub>Escolher onde o Spotify toca</sub></td>
 <td align="center"><img src="docs/screens/home-offline.png" width="320"><br><sub>Sem conexão: a tela avisa e continua tentando</sub></td>
 </tr>
+<tr>
+<td align="center"><img src="docs/screens/boas-vindas.png" width="320"><br><sub>Primeira vez: o que é a ShiftDeck</sub></td>
+<td align="center"><img src="docs/screens/requisitos.png" width="320"><br><sub>O que você vai precisar, com QR para este guia</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screens/atualizacao.png" width="320"><br><sub>Versão nova encontrada: atualizar agora ou depois</sub></td>
+<td align="center"><img src="docs/screens/atualizando.png" width="320"><br><sub>Atualização pela internet, sem cabo</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screens/config-atualizacao.png" width="320"><br><sub>Configurações › Atualização: versão instalada e a mais recente</sub></td>
+<td align="center"><img src="docs/screens/conta-spotify.png" width="320"><br><sub>Configurações › Conta Spotify: sair e entrar com outra conta</sub></td>
+</tr>
 </table>
 
 As imagens saem do simulador do projeto (`ShiftDeck-CYD/sim`), que roda o mesmo código de desenho do firmware.
@@ -34,7 +46,6 @@ As imagens saem do simulador do projeto (`ShiftDeck-CYD/sim`), que roda o mesmo 
 - Uma placa **ESP32-2432S028** (CYD). Existem versões com micro-USB, USB-C ou as duas; todas servem.
 - Um **cabo USB de dados**. Muitos cabos de carregador só carregam: a placa acende, mas o computador não a enxerga.
 - Uma conta **Spotify Premium**. A API do Spotify só deixa controlar a reprodução em contas Premium.
-- Uma conta **Google**, para publicar a pequena ponte de login no Apps Script (de graça, explicada abaixo).
 - **Chrome** ou **Edge** no computador, para o instalador web.
 
 ## Como funciona
@@ -45,15 +56,17 @@ As imagens saem do simulador do projeto (`ShiftDeck-CYD/sim`), que roda o mesmo 
  │ ShiftDeck │ ───────────────────────────────▶ │ api.spotify.com      │
  │  (ESP32)  │ ◀─────────────────────────────── │ accounts.spotify.com │
  └─────▲─────┘        música, capa, comandos    └──────────────────────┘
-       │ http://IP-da-placa (só no primeiro login)
- ┌─────┴─────┐   login no Spotify   ┌──────────────────────────────┐
- │  celular  │ ───────────────────▶ │ Google Apps Script (sua ponte)│
- └───────────┘ ◀─ volta p/ a placa ─└──────────────────────────────┘
+       │ http://IP-da-placa/code (só no primeiro login)
+ ┌─────┴─────┐   login no Spotify   ┌────────────────────────────────┐
+ │  celular  │ ───────────────────▶ │ página de retorno (GitHub Pages)│
+ └───────────┘ ◀─ volta p/ a placa ─└────────────────────────────────┘
 ```
 
 - A placa fala direto com a API do Spotify. Não existe servidor do projeto no meio.
-- **Por que o Apps Script?** O Spotify só aceita endereços de retorno do login em HTTPS público, e a placa só serve HTTP dentro da sua rede. A ponte no Apps Script recebe o código de login do Spotify e manda o celular de volta para `http://IP-da-placa/code`. Ela é usada só uma vez, no primeiro login.
-- Depois do login, a placa guarda um *refresh token* e renova o acesso sozinha. Wi-Fi, Client ID/Secret e o token ficam só na memória da placa (LittleFS), nunca neste repositório.
+- **Página de retorno.** O Spotify só devolve o login para endereços HTTPS públicos, e a placa só serve HTTP dentro da sua rede. Por isso o Spotify devolve o celular para [`callback.html`](ShiftDeck-CYD/flasher/callback.html), uma página estática no GitHub Pages que só repassa o código para `http://IP-da-placa/code`. Ela não guarda nem envia nada para outro lugar, e só aceita endereços de rede local. É usada uma vez, no primeiro login.
+- Depois do login, a placa guarda um *refresh token* e renova o acesso sozinha. Wi-Fi, Client ID e o token ficam só na memória da placa (LittleFS), nunca neste repositório.
+- **Sem Client Secret.** O login usa PKCE, o método do Spotify para aparelhos: a placa cria um código aleatório a cada login e prova que é ela quem pediu, então só o Client ID é necessário e nenhum segredo fica gravado.
+- **Atualizações.** A placa confere o instalador web ao ligar e a cada 6 horas. Quando sai versão nova, pergunta se quer atualizar; a versão nova é baixada por HTTPS para um segundo espaço da memória e só passa a valer depois de chegar inteira. Wi-Fi e conta continuam salvos.
 
 ## Instalação
 
@@ -61,32 +74,30 @@ As imagens saem do simulador do projeto (`ShiftDeck-CYD/sim`), que roda o mesmo 
 
 1. Abra **https://brachynuspro.github.io/shiftdeck-flasher/** no Chrome ou no Edge.
 2. Ligue a placa no computador com o cabo de dados.
-3. Clique em **Instalar do zero** (placa nova) ou **Atualizar firmware** (mantém Wi-Fi e conta).
+3. Clique em **Instalar do zero** (placa nova, ou vindo de uma versão anterior à 1.3.0) ou **Atualizar firmware** (mantém Wi-Fi e conta).
 4. Escolha a porta (`USB Serial`, `CH340`, `usbserial`…) e clique em **Install**. Se não conectar, segure **BOOT** enquanto clica.
 5. Quando terminar, aperte **RST**.
 
 Drivers: no **macOS** e no **Linux** não precisa instalar nada (o macOS já traz os drivers CH340/CP210x). No **Windows**, se a porta não aparecer, instale o [driver CH340](https://www.wch-ic.com/downloads/CH341SER_EXE.html).
 
-### 2. Publicar a ponte no Google Apps Script
+A partir da 1.3.0 a memória da placa tem dois espaços de programa (para as atualizações automáticas). Quem vem de uma versão anterior precisa usar **Instalar do zero** uma vez e configurar de novo. Depois disso, as atualizações chegam sozinhas.
 
-1. Abra [script.google.com](https://script.google.com) e crie um **Novo projeto**.
-2. Apague o conteúdo e cole o arquivo [`appscript/Código.js`](appscript/C%C3%B3digo.js) deste repositório.
-3. **Implantar → Nova implantação → App da Web**:
-   - *Executar como*: **Eu**
-   - *Quem pode acessar*: **Qualquer pessoa**
-4. Autorize quando o Google pedir e copie a **URL do app da Web** (termina em `/exec`). Ela vai ser usada nos dois passos seguintes.
+### 2. Criar o app no Spotify
 
-### 3. Criar o app no Spotify
+Tem um **[guia passo a passo para celular](https://brachynuspro.github.io/shiftdeck-flasher/guia)**, que também abre pelo QR da tela de boas-vindas. Resumo:
 
 1. Entre em [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) e clique em **Create app**.
-2. Em **Redirect URIs**, cole a URL `/exec` do Apps Script, exatamente igual.
+2. Em **Redirect URIs**, adicione exatamente:
+   ```
+   https://brachynuspro.github.io/shiftdeck-flasher/callback.html
+   ```
 3. Marque **Web API** e salve.
-4. Em **Settings**, copie o **Client ID** e o **Client Secret**.
+4. Em **Settings**, copie o **Client ID**. O Client Secret não é necessário.
 5. Enquanto o app estiver em modo de desenvolvimento, adicione o e-mail da sua conta Spotify em **User Management**.
 
-### 4. Configurar a placa
+### 3. Configurar a placa
 
-Na primeira vez, a ShiftDeck guia você por três telas. Em todas é só apontar a câmera do celular para o QR.
+Na primeira vez, a ShiftDeck mostra o que ela é e o que você vai precisar, e depois guia você por três telas. Em todas é só apontar a câmera do celular para o QR.
 
 <table>
 <tr>
@@ -96,8 +107,8 @@ Na primeira vez, a ShiftDeck guia você por três telas. Em todas é só apontar
 </tr>
 <tr>
 <td><b>Passo 1: Wi-Fi.</b> O QR conecta o celular à rede <code>Shiftdeck-Spotify</code> e a página de configuração abre sozinha. Escolha a sua rede, digite a senha e salve. A placa reinicia.</td>
-<td><b>Passo 2: Spotify.</b> Com o celular na mesma rede, o QR abre a página da placa. Cole o Client ID, o Client Secret e a URL do Apps Script. A placa reinicia.</td>
-<td><b>Passo 3: Autorizar.</b> O QR abre a página de login. Toque em <b>Autorizar Spotify</b>, entre na sua conta e aceite. A tela mostra <b>Conectado!</b> e abre a música.</td>
+<td><b>Passo 2: Spotify.</b> Com o celular na mesma rede, o QR abre a página da placa. A página tem um botão para abrir o Spotify Dashboard e outro para copiar a Redirect URI. Cole o Client ID e salve. A placa reinicia.</td>
+<td><b>Passo 3: Autorizar.</b> O QR abre a página de login. Toque em <b>Autorizar Spotify</b>, entre na sua conta e aceite. O celular volta sozinho para a placa, a tela mostra <b>Conectado!</b> e abre a música.</td>
 </tr>
 </table>
 
@@ -120,14 +131,16 @@ Se aparecer **"Nenhum dispositivo ativo"**, abra o Spotify em algum aparelho (ce
 | A placa acende, mas a porta não aparece no instalador | Cabo só de carga. Troque por um cabo de dados (teste: com ele o celular aparece no computador). |
 | A porta some quando a tela acende | Falta energia: hub sem fonte ou conector frouxo. Ligue direto no computador ou num hub com fonte. |
 | "Spotify Offline" na tela | Confira a internet do Wi-Fi. Se continuar, refaça o Passo 3 (a autorização pode ter sido revogada na conta Spotify). |
+| A placa reinicia ao tocar em **Começar** ou quando a tela acende | Falta energia: o Wi-Fi e o brilho da tela puxam picos de corrente. Use um carregador de tomada (5 V, 1 A) ou um hub com fonte. |
+| O Spotify mostra "INVALID_CLIENT: Invalid redirect URI" | A Redirect URI do seu app no Spotify não está igual à do Passo 2. Copie de novo, sem espaço nem barra no final. |
 | Quero apagar tudo e configurar de novo | No instalador, use **Instalar do zero**: apaga Wi-Fi, conta e calibração. |
 
 ## Segurança e privacidade
 
-- Nenhuma senha, token ou ID pessoal fica no código. Cada pessoa cria o próprio app no Spotify e a própria ponte no Apps Script.
+- Nenhuma senha, token ou ID pessoal fica no código. Cada pessoa cria o próprio app no Spotify.
 - As conexões HTTPS da placa verificam o certificado do servidor com uma lista de autoridades raiz embutida no firmware (`ShiftDeck-CYD/certs/`, gerada por `tools/gen_crt_bundle.py`).
-- A ponte do Apps Script guarda o código de login só até a placa buscá-lo. Esse código sozinho não serve para nada sem o seu Client Secret, que fica só na placa.
-- `appscript/.clasp.json` (ID do seu projeto no Apps Script, se você usar o `clasp`) está no `.gitignore`.
+- A página de retorno roda só no navegador: lê o código da URL e manda o celular para a placa. Esse código sozinho não serve para nada: trocá-lo por um token exige o código aleatório (PKCE) que só a placa tem.
+- As atualizações vêm só do instalador oficial, por HTTPS verificado. Se o download falhar, a versão atual continua instalada.
 
 ## Desenvolver
 
@@ -153,7 +166,7 @@ python3 tools/gen_crt_bundle.py roots.pem certs/x509_crt_bundle.bin
 ### Publicar uma versão nova
 
 1. Suba `VERSION` em `ShiftDeck-CYD/src/config.h`.
-2. `sh tools/release.sh --publish` (dentro de `ShiftDeck-CYD/`, com o `gh` logado). A página do instalador atualiza em ~1 minuto.
+2. `sh tools/release.sh --publish` (dentro de `ShiftDeck-CYD/`, com o `gh` logado). A página do instalador atualiza em ~1 minuto, e as placas ligadas oferecem a versão nova em até 6 horas (ou na hora, em Configurações › Atualização › Verificar).
 
 ## Estrutura
 
@@ -161,10 +174,9 @@ python3 tools/gen_crt_bundle.py roots.pem certs/x509_crt_bundle.bin
 |---|---|
 | `ShiftDeck-CYD/src` | Firmware (PlatformIO/Arduino): telas em `Views/`, desenho em `DisplayUI`, Spotify em `SpotifyPlayer`, configurações em `Vault` |
 | `ShiftDeck-CYD/sim` | Simulador das telas no computador (TFT_eSPI real + emulador do ILI9341) |
-| `ShiftDeck-CYD/flasher` | Página do instalador web (publicada no repositório `shiftdeck-flasher`) |
+| `ShiftDeck-CYD/flasher` | Instalador web, página de retorno do login (`callback.html`) e imagens das atualizações, publicados no repositório `shiftdeck-flasher` |
 | `ShiftDeck-CYD/tools` | Fontes (`make_fonts.py`), certificados (`gen_crt_bundle.py`) e release (`release.sh`) |
 | `ShiftDeck-CYD/certs` | Lista de autoridades raiz usada no HTTPS |
-| `appscript` | Ponte de login no Google Apps Script |
 | `docs/screens` | Imagens das telas usadas neste README |
 | `IMGS` | Mockups de referência da interface |
 

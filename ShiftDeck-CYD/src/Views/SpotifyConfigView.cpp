@@ -1,5 +1,5 @@
 /*-------------------------------------------------------------------------------------------------
-** SpotifyConfigView.cpp - Step 2: enter the Spotify app's Client ID / Secret
+** SpotifyConfigView.cpp - Step 2: enter the Spotify app's Client ID
 ** ------------------------------------------------------------------------------------------------
 */
 #include "SpotifyConfigView.h"
@@ -7,7 +7,7 @@
 SpotifyConfigView::SpotifyConfigView(DisplayUI *ui)
     : SetupView(ui, 2, "Conecte o Spotify", "Celular na mesma rede Wi-Fi da ShiftDeck",
                 "Ao salvar, a ShiftDeck reinicia sozinha") {
-    setRow(1, IconID::Spotify, "Cole do seu app Spotify", "Client ID e Secret", C_WHITE);
+    setRow(1, IconID::Spotify, "Cole do seu app Spotify", "Só o Client ID", C_WHITE);
     setRow(2, IconID::Settings, "Ainda não tem o app?", "O link está na página", C_WHITE);
     setIP("192.168.0.1");
 }
