@@ -266,6 +266,16 @@ void SearchView::onTap(uint16_t x, uint16_t y) {
     UIViewManager::getInstance().home();
 }
 
+bool SearchView::onLongPress(uint16_t x, uint16_t y) {
+    int slot = (int)(y - LIST_Y) / ROW_PITCH;
+    int idx = _scroll + slot;
+    if (_keyboard || y < LIST_Y || y >= FOOT_Y - 2 || slot >= ROWS || idx >= (int)_results.size()) return false;
+    const MediaItem& m = _results[idx];
+    if (m.kind == MediaItem::Track) SpotifyPlayer::getInstance().addToQueue(m.uri);   // the player toasts the result
+    else UIViewManager::getInstance().showToast("Só músicas vão para a fila");
+    return true;
+}
+
 void SearchView::onDrag(uint16_t, uint16_t startY, int dy) {
     if (_keyboard || startY < LIST_Y || startY >= FOOT_Y) return;
     int maxScroll = max(0, (int)_results.size() - ROWS);

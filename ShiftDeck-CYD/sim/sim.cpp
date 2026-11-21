@@ -26,6 +26,7 @@
 #include "Views/WelcomeView.h"
 #include "Views/UpdateView.h"
 #include "Views/AccountView.h"
+#include "Views/QueueView.h"
 #include "WiFiSetup.h"
 #include "Updater.h"
 #include <cassert>
@@ -125,6 +126,10 @@ struct SimState {
     long progress = 95000, duration = 178000;
     std::vector<MediaItem> playlists, results;
     std::vector<DeviceInfo> devices;
+    std::vector<MediaItem> queue;
+    bool shuffle = false;
+    String repeat = "off";
+    long seekedTo = -1;
     String latest = "";
 } g;
 
@@ -164,6 +169,13 @@ void SpotifyPlayer::search(const String&) {}
 void SpotifyPlayer::fetchPlaylists() {}
 void SpotifyPlayer::fetchDevices() {}
 void SpotifyPlayer::transferTo(const String&) {}
+void SpotifyPlayer::seek(long ms) { g.seekedTo = ms; g.progress = ms; }
+void SpotifyPlayer::addToQueue(const String&) {}
+void SpotifyPlayer::fetchQueue() {}
+void SpotifyPlayer::setShuffle(bool on) { g.shuffle = on; _shuffle = on; }
+void SpotifyPlayer::setRepeat(const String& m) { g.repeat = m; }
+String SpotifyPlayer::getRepeat() { return g.repeat; }
+std::vector<MediaItem> SpotifyPlayer::getQueue() { return g.queue; }
 void SpotifyPlayer::checkForUpdate() {}
 void SpotifyPlayer::installUpdate() {}
 void SpotifyPlayer::setVolume(int) {}
@@ -266,10 +278,13 @@ int main(int argc, char** argv) {
     vm.registerView(ViewID::Search, &search);
     vm.registerView(ViewID::Playlist, &playlists);
     vm.registerView(ViewID::Settings, &settings);
+    QueueView queueView(&ui);
+    vm.registerView(ViewID::Queue, &queueView);
 
     g.devices = { {"a1", "Galaxy S23", "Smartphone", true}, {"b2", "MacBook Pro", "Computer", false}, {"c3", "Sala JBL", "Speaker", false} };
     g.playlists = {
         item(MediaItem::Liked, "Curtidas", "312 músicas", nullptr),
+        item(MediaItem::Track, "Malvadão 3", "Tocada recentemente · Xamã", "cover"),
         item(MediaItem::Playlist, "Rap Nacional", "98 músicas", "pl_rap"),
         item(MediaItem::Playlist, "Treino", "45 músicas", "pl_treino"),
         item(MediaItem::Playlist, "Descobertas", "74 músicas", "pl_desc"),
@@ -367,6 +382,41 @@ int main(int argc, char** argv) {
     // version comparison used by the updater
     assert(Updater::isNewer("1.2.10", "1.2.9") && Updater::isNewer("2.0.0", "1.9.9") && Updater::isNewer("1.3", "1.2.9"));
     assert(!Updater::isNewer("1.2.2", "1.2.2") && !Updater::isNewer("1.2.1", "1.2.2") && !Updater::isNewer("", "1.2.2"));
+
+    // 2d. seek: drag the progress bar to 3/4, then hold play -> "A seguir"
+    vm.home();
+    home.markDirty();
+    settle(&home);
+    home.onTouchDown(60, 164);
+    home.onTouchMove(120, 164);
+    home.onTouchMove(229, 164);
+    dump(out, "2d_home_seeking");
+    home.onTouchUp(229, 164);
+    assert(g.seekedTo > 120000 && g.seekedTo < 150000);   // ~3/4 of 2:58
+    g.queue = {
+        item(MediaItem::Track, "Luxúria", "Xamã, Brandão85", nullptr),
+        item(MediaItem::Track, "Malvadão 3", "Xamã", "cover"),
+        item(MediaItem::Track, "Sei Lá", "Xamã", nullptr),
+        item(MediaItem::Track, "Zodíaco", "Xamã", nullptr),
+        item(MediaItem::Track, "Ela Gosta", "Xamã", nullptr),
+    };
+    SpotifyPlayer::getInstance().setShuffle(true);
+    home.onTouchDown(160, 210);
+    g_ms += 700;
+    home.onTouchMove(160, 210);                       // still held: opens the queue, no pause
+    home.onTouchUp(160, 210);
+    assert(vm.getActiveView() && vm.getActiveView()->getID() == ViewID::Queue);
+    SCUIMessage qm{}; qm.type = SCUIMessageType::UM_QUEUE_DONE; qm.num = 5;
+    vm.getActiveView()->handleMessage(&qm);
+    settle(vm.getActiveView());
+    dump(out, "2e_queue");
+    tap(vm.getActiveView(), 240, 52);                 // Repetir: não -> tudo
+    assert(g.repeat == "context");
+    dump(out, "2f_queue_repeat");
+    g.queue.clear();
+    vm.getActiveView()->handleMessage(&qm);
+    dump(out, "2g_queue_empty");
+    vm.home();
 
     // 6. empty / offline states
     g.music = false; g.cover = false; g.api = false;

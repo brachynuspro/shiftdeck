@@ -19,6 +19,7 @@ public:
     void draw() override;
     void onTap(uint16_t x, uint16_t y) override;
     void onDrag(uint16_t startX, uint16_t startY, int dy) override;
+    bool onLongPress(uint16_t x, uint16_t y) override;   // hold a song: play it next
     void onEnter() override;
     void handleMessage(SCUIMessage *msg) override;
 

@@ -60,6 +60,7 @@
 #include "Views/WelcomeView.h"
 #include "Views/UpdateView.h"
 #include "Views/AccountView.h"
+#include "Views/QueueView.h"
 #include "CertBundle.h"
 
 TFT_eSPI       tft = TFT_eSPI();
@@ -81,6 +82,7 @@ SettingsView*  setView   = nullptr;
 WelcomeView*   welcomeView = nullptr;
 UpdateView*    updateView  = nullptr;
 AccountView*   accountView = nullptr;
+QueueView*     queueView   = nullptr;
 
 QueueHandle_t scuiQueue;
 TaskHandle_t  uiTaskHandle;
@@ -269,6 +271,7 @@ void setup() {
     welcomeView   = new WelcomeView(&displayUI);
     updateView    = new UpdateView(&displayUI);
     accountView   = new AccountView(&displayUI);
+    queueView     = new QueueView(&displayUI);
 
     viewMgr.setDisplayUI(&displayUI);
     viewMgr.registerView(ViewID::Boot, bootView);
@@ -279,6 +282,7 @@ void setup() {
     viewMgr.registerView(ViewID::Welcome, welcomeView);
     viewMgr.registerView(ViewID::Update, updateView);
     viewMgr.registerView(ViewID::Account, accountView);
+    viewMgr.registerView(ViewID::Queue, queueView);
 
     // Fresh install (nothing saved yet): present the product and its requirements,
     // then go straight to the Wi-Fi step. waitInSetupPortal() never returns.
@@ -316,6 +320,10 @@ void setup() {
         waitInSetupPortal(false);
     }
     spLogI(LOGTAG_BOOT, "WiFi connected: %s", WiFi.localIP().toString().c_str());
+    // Clock in the status bar. Vault keeps "UTC-3"; POSIX TZ flips the sign ("UTC3").
+    String tz = vault.getTimezone();
+    String posixTz = tz.startsWith("UTC") ? "UTC" + String(-tz.substring(3).toInt()) : tz;
+    configTzTime(posixTz.c_str(), "pool.ntp.org", "time.google.com");
     bootView->setStep(BootView::STEP_WIFI, BootView::OK);
     bootView->setProgress(50);
 

@@ -6,6 +6,7 @@
 #include "SpotifyPlayer.h"
 #include <WiFi.h>
 #include <qrcode.h>
+#include <time.h>
 
 void UIView::handleMessage(SCUIMessage *msg) {
     if (msg->type == SCUIMessageType::UM_MARK_DIRTY) _dirty = true;
@@ -14,6 +15,10 @@ void UIView::handleMessage(SCUIMessage *msg) {
 void UIView::onTouchMove(uint16_t x, uint16_t y) {
     if (!_dragging && (abs((int)x - _downX) > TAP_SLOP || abs((int)y - _downY) > TAP_SLOP)) _dragging = true;
     _curX = x;
+    if (!_dragging && !_longChecked && millis() - _downMs >= LONG_PRESS_MS) {
+        _longChecked = true;
+        _longHandled = onLongPress(_downX, _downY);
+    }
     if (_dragging) {
         onDrag(_downX, _downY, (int)y - (int)_lastY);
         _lastY = y;
@@ -21,7 +26,7 @@ void UIView::onTouchMove(uint16_t x, uint16_t y) {
 }
 
 void UIView::onTouchUp(uint16_t, uint16_t) {
-    if (!_dragging) onTap(_downX, _downY);
+    if (!_dragging && !_longHandled) onTap(_downX, _downY);
     _dragging = false;
 }
 
@@ -46,9 +51,20 @@ void UIView::drawStatusItem(int32_t x, int32_t cy, IconID icon, uint16_t iconCol
     _ui->drawString(_ui->fitText(value, maxW, FONT_XS).c_str(), x + 26, _ui->textY(FONT_XS, cy + 8), FONT_XS);
 }
 
+String UIView::clockText() {
+    time_t now = time(nullptr);
+    if (now < 1700000000) return "";   // not synced yet (the RTC starts at 1970)
+    struct tm t;
+    localtime_r(&now, &t);
+    char buf[8];
+    strftime(buf, sizeof(buf), "%H:%M", &t);
+    return buf;
+}
+
 void UIView::drawWifiStatus(int32_t x, int32_t cy, uint16_t bg) {
     bool ok = WiFi.status() == WL_CONNECTED;
-    drawStatusItem(x, cy, ok ? IconID::Wifi : IconID::WifiOff, ok ? C_WHITE : C_ERROR, "Wi-Fi",
+    String clock = clockText();
+    drawStatusItem(x, cy, ok ? IconID::Wifi : IconID::WifiOff, ok ? C_WHITE : C_ERROR, clock.length() ? clock.c_str() : "Wi-Fi",
                    ok ? "Conectado" : "Sem rede", ok ? C_GREEN : C_ERROR, bg);
 }
 

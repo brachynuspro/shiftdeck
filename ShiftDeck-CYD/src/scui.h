@@ -22,7 +22,8 @@ enum class SCUIMessageType : uint8_t {
     UM_LIKE_CHANGED    = 12,
     UM_TOAST           = 13,  // str = short user-facing message
     UM_UPDATE_STATUS   = 14,  // str = latest version ("" = check failed), num = 1 if newer than VERSION
-    UM_UPDATE_PROGRESS = 15   // num = 0..100, or -1 = failed (str = reason)
+    UM_UPDATE_PROGRESS = 15,  // num = 0..100, or -1 = failed (str = reason)
+    UM_QUEUE_DONE      = 16   // up-next list and shuffle/repeat state read; num = count, -1 = failed
 };
 
 // Plain-old-data on purpose: FreeRTOS queues copy messages with memcpy,

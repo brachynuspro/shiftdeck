@@ -55,6 +55,11 @@ public:
     void fetchPlaylists();              // -> UM_PLAYLISTS_DONE
     void fetchDevices();                // -> UM_DEVICES_DONE
     void transferTo(const String& deviceId);
+    void seek(long ms);                 // optimistic: the progress jumps right away
+    void addToQueue(const String& uri); // "Tocar a seguir" (tracks only)
+    void fetchQueue();                  // -> UM_QUEUE_DONE (up next + shuffle/repeat)
+    void setShuffle(bool on);           // optimistic, then re-reads the queue
+    void setRepeat(const String& mode); // "off", "context" or "track"; same
 
     // ---- state (safe to call from the UI task) ----
     bool isMusicAvailable();
@@ -66,6 +71,9 @@ public:
     std::vector<MediaItem> getSearchResults();
     std::vector<MediaItem> getPlaylists();
     std::vector<DeviceInfo> getDevices();
+    std::vector<MediaItem> getQueue();
+    bool getShuffle() { return _shuffle; }
+    String getRepeat();
     String getActiveDeviceType();       // localized ("Celular"), "" if none
     String getActiveDeviceName();
     const PlayingMetadata& getCurrentlyPlayingMetadata();
@@ -91,7 +99,8 @@ private:
 
     enum CmdType : uint8_t { CMD_PAUSE = 1, CMD_PLAY, CMD_NEXT, CMD_PREV, CMD_LIKE, CMD_PLAY_ITEM,
                              CMD_SEARCH, CMD_PLAYLISTS, CMD_DEVICES, CMD_TRANSFER,
-                             CMD_CHECK_UPDATE, CMD_INSTALL_UPDATE, CMD_VOLUME };
+                             CMD_CHECK_UPDATE, CMD_INSTALL_UPDATE, CMD_VOLUME,
+                             CMD_SEEK, CMD_QUEUE_ADD, CMD_QUEUE, CMD_SHUFFLE, CMD_REPEAT };
     struct PlayerCmd {
         CmdType type;
         uint8_t kind;
@@ -107,6 +116,7 @@ private:
     void doSearch(const String& query);
     void doPlaylists();
     void doDevices();
+    void doQueue();
     bool doPlayItem(uint8_t kind, const String& uri, const String& contextUri);
     void checkLiked();
     void doCheckUpdate();
@@ -137,6 +147,9 @@ private:
     std::vector<MediaItem> _searchResults;
     std::vector<MediaItem> _playlists;
     std::vector<DeviceInfo> _devices;
+    std::vector<MediaItem> _queue;
+    volatile bool _shuffle = false;
+    String _repeat = "off";     // guarded by _xSemaphoreDataCopy
 
     SemaphoreHandle_t _xSemaphoreNetwork = xSemaphoreCreateMutex();
     SemaphoreHandle_t _xSemaphoreDataCopy = xSemaphoreCreateMutex();

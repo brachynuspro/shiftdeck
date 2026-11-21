@@ -20,6 +20,7 @@
 
 #include <HTTPClient.h>
 #include <cstring>
+#include <algorithm>
 #include <ctype.h>
 
 SpotifyArduino spotify(client);
@@ -253,6 +254,44 @@ void SpotifyPlayer::fetchPlaylists() {
 }
 
 void SpotifyPlayer::fetchDevices()                   { enqueue(CMD_DEVICES); }
+void SpotifyPlayer::addToQueue(const String& uri)    { enqueue(CMD_QUEUE_ADD, uri); }
+void SpotifyPlayer::fetchQueue()                     { enqueue(CMD_QUEUE); }
+void SpotifyPlayer::setShuffle(bool on)              { _shuffle = on; enqueue(CMD_SHUFFLE, on ? "true" : "false"); }
+
+void SpotifyPlayer::setRepeat(const String& mode) {
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) {
+        _repeat = mode;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    enqueue(CMD_REPEAT, mode);
+}
+
+String SpotifyPlayer::getRepeat() {
+    String r;
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) {
+        r = _repeat;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    return r;
+}
+
+std::vector<MediaItem> SpotifyPlayer::getQueue() {
+    std::vector<MediaItem> q;
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(1000))) {
+        q = _queue;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    return q;
+}
+
+void SpotifyPlayer::seek(long ms) {
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) {
+        _currentlyPlayingMetadata.progressMs = ms;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    _lastRefreshMs = millis();   // the bar interpolates from here
+    enqueue(CMD_SEEK, String(ms));
+}
 void SpotifyPlayer::transferTo(const String& id)     { enqueue(CMD_TRANSFER, id); }
 void SpotifyPlayer::checkForUpdate()                 { enqueue(CMD_CHECK_UPDATE); }
 void SpotifyPlayer::setVolume(int percent)           { enqueue(CMD_VOLUME, String(constrain(percent, 0, 100))); }
@@ -352,6 +391,29 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
             }
             Vault::getInstance().setPendingUpdate("");
             postScuiMessage(SCUIMessageType::UM_UPDATE_PROGRESS, err.c_str(), -1);
+            return false;
+        }
+        case CMD_SEEK: {
+            int st = api("PUT", String(API) + "/me/player/seek?position_ms=" + cmd.arg);
+            if (st != 200 && st != 202 && st != 204 && !_accountIssue)
+                postScuiMessage(SCUIMessageType::UM_TOAST, st == 404 ? "Nenhum dispositivo ativo" : "Spotify não respondeu");
+            return true;   // poll now so the bar settles on the real position
+        }
+        case CMD_QUEUE_ADD: {
+            int st = api("POST", String(API) + "/me/player/queue?uri=" + urlEncode(cmd.arg));
+            bool ok = st == 200 || st == 202 || st == 204;
+            if (ok || !_accountIssue)
+                postScuiMessage(SCUIMessageType::UM_TOAST, ok ? "Vai tocar a seguir" : st == 404 ? "Nenhum dispositivo ativo" : "Não foi possível pôr na fila");
+            return false;
+        }
+        case CMD_QUEUE: doQueue(); return false;
+        case CMD_SHUFFLE: case CMD_REPEAT: {
+            String path = cmd.type == CMD_SHUFFLE ? "/me/player/shuffle?state=" : "/me/player/repeat?state=";
+            int st = api("PUT", String(API) + path + cmd.arg);
+            if (st != 200 && st != 202 && st != 204 && !_accountIssue)
+                postScuiMessage(SCUIMessageType::UM_TOAST, st == 404 ? "Nenhum dispositivo ativo" : "Spotify não respondeu");
+            vTaskDelay(pdMS_TO_TICKS(400));   // the queue reflects a shuffle a moment later
+            doQueue();                        // real state back (undoes the optimistic one on failure)
             return false;
         }
         case CMD_TRANSFER: {
@@ -500,6 +562,34 @@ void SpotifyPlayer::doPlaylists() {
             out.push_back(liked);
         }
     }
+    {   // the last few different tracks, right after Curtidas
+        JsonDocument f, d;
+        JsonObject t = f["items"][0]["track"].to<JsonObject>();
+        t["name"] = true;
+        t["uri"] = true;
+        t["artists"][0]["name"] = true;
+        t["album"]["uri"] = true;
+        t["album"]["images"][0]["url"] = true;
+        t["album"]["images"][0]["width"] = true;
+        if (api("GET", String(API) + "/me/player/recently-played?limit=15", "", &d, &f) == 200) {
+            std::vector<String> seen;
+            for (JsonObjectConst i : d["items"].as<JsonArrayConst>()) {
+                JsonObjectConst tr = i["track"];
+                String uri = tr["uri"] | "";
+                if (uri.isEmpty() || std::find(seen.begin(), seen.end(), uri) != seen.end()) continue;
+                seen.push_back(uri);
+                MediaItem m;
+                m.kind = MediaItem::Track;
+                m.name = tr["name"] | "";
+                m.subtitle = String("Tocada recentemente · ") + (tr["artists"][0]["name"] | "");
+                m.uri = uri;
+                m.contextUri = tr["album"]["uri"] | "";
+                m.imageUrl = pickImage(tr["album"]["images"], 40);
+                out.push_back(m);
+                if (seen.size() == 3) break;
+            }
+        }
+    }
     JsonDocument filter;
     JsonObject it = filter["items"].add<JsonObject>();
     it["name"] = true;
@@ -562,6 +652,52 @@ void SpotifyPlayer::doDevices() {
     postScuiMessage(SCUIMessageType::UM_DEVICES_DONE, "", (int)list.size());
 }
 
+void SpotifyPlayer::doQueue() {
+    {
+        JsonDocument f, d;
+        f["shuffle_state"] = true;
+        f["repeat_state"] = true;
+        if (api("GET", String(API) + "/me/player", "", &d, &f) == 200) {
+            _shuffle = d["shuffle_state"] | false;
+            String r = d["repeat_state"] | "off";
+            if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(1000))) {
+                _repeat = r;
+                xSemaphoreGive(_xSemaphoreDataCopy);
+            }
+        }
+    }
+    JsonDocument filter;
+    JsonObject it = filter["queue"].add<JsonObject>();
+    it["name"] = true;
+    it["uri"] = true;
+    it["artists"][0]["name"] = true;
+    it["show"]["name"] = true;                  // podcast episodes
+    it["album"]["images"][0]["url"] = true;
+    it["album"]["images"][0]["width"] = true;
+    it["images"][0]["url"] = true;
+    it["images"][0]["width"] = true;
+    JsonDocument doc;
+    int st = api("GET", String(API) + "/me/player/queue", "", &doc, &filter);
+    std::vector<MediaItem> out;
+    if (st == 200) {
+        for (JsonObjectConst q : doc["queue"].as<JsonArrayConst>()) {
+            if (out.size() >= 5) break;   // shortcut: the screen shows 5, no scrolling; raise both to show more
+            MediaItem m;
+            m.kind = MediaItem::Track;
+            m.name = q["name"] | "";
+            m.subtitle = q["artists"][0]["name"] | (q["show"]["name"] | "");
+            m.uri = q["uri"] | "";
+            m.imageUrl = pickImage(q["album"]["images"].isNull() ? q["images"] : q["album"]["images"], 40);
+            out.push_back(m);
+        }
+    }
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(2000))) {
+        _queue = out;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    postScuiMessage(SCUIMessageType::UM_QUEUE_DONE, "", st == 200 ? (int)out.size() : -1);
+}
+
 void SpotifyPlayer::checkLiked() {
     String uri = _currentlyPlayingMetadata.trackUri;
     bool liked = false;
@@ -585,7 +721,7 @@ String SpotifyPlayer::thumbPath(const String& url) {
 bool SpotifyPlayer::fetchNextThumbnail() {
     String url;
     if (!xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) return false;
-    for (auto* list : { &_searchResults, &_playlists }) {
+    for (auto* list : { &_searchResults, &_playlists, &_queue }) {
         for (auto& m : *list) {
             if (m.thumb != 0) continue;
             if (m.imageUrl.isEmpty()) { m.thumb = 2; continue; }
@@ -613,7 +749,7 @@ bool SpotifyPlayer::fetchNextThumbnail() {
         if (!ok && fs.ok) LittleFS.remove(tmp);
     }
     if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) {
-        for (auto* list : { &_searchResults, &_playlists })
+        for (auto* list : { &_searchResults, &_playlists, &_queue })
             for (auto& m : *list)
                 if (m.imageUrl == url) m.thumb = ok ? 1 : 2;
         xSemaphoreGive(_xSemaphoreDataCopy);
@@ -779,7 +915,7 @@ void SpotifyPlayer::getCurrentlyPlayingCallback(CurrentlyPlaying currentlyPlayin
 
 void SpotifyPlayer::refreshCurrentSongTask(void *pvParameters) {
     SpotifyPlayer& p = SpotifyPlayer::getInstance();
-    unsigned long lastDevicesMs = 0, lastUpdateCheckMs = 0, offlineSinceMs = 0;
+    unsigned long lastDevicesMs = 0, lastUpdateCheckMs = 0, offlineSinceMs = 0, fastUntil = 0;
     bool updateChecked = false;
     for (;;) {
         esp_task_wdt_reset();
@@ -792,6 +928,7 @@ void SpotifyPlayer::refreshCurrentSongTask(void *pvParameters) {
             ESP.restart();
         }
         p.refreshCurrentTrack();
+        if (p._isNewTrack) fastUntil = 0;   // the change we were polling for is here
         p.refreshCoverArt();
         if (p._isNewTrack) {
             p._isNewTrack = false;
@@ -807,19 +944,32 @@ void SpotifyPlayer::refreshCurrentSongTask(void *pvParameters) {
             updateChecked = true;
         }
 
+        // Next poll in 3 s, sooner where the screen would lag behind the music: for a few
+        // seconds after a skip/play (Spotify switches a moment after answering the command),
+        // and right when the song should end.
+        long wait = millis() < fastUntil ? 400 : 3000;
+        const PlayingMetadata& m = p._currentlyPlayingMetadata;
+        if (p._isPlaying && p._isMusicAvailable && m.durationMs > 0) {
+            long left = (long)m.durationMs - m.progressMs - (long)(millis() - p._lastRefreshMs);
+            if (left + 400 < wait) wait = max(left + 400, 400L);
+        }
+
         // Until the next poll: run queued commands first, then fetch
         // thumbnails, otherwise sleep on the queue. Playback commands cut
         // the wait short so the UI resyncs right away.
-        unsigned long until = millis() + 3000;
+        unsigned long until = millis() + wait;
         while ((long)(until - millis()) > 0) {
             PlayerCmd cmd;
             if (xQueueReceive(p._cmdQueue, &cmd, 0) == pdTRUE) {
-                if (p.execute(cmd)) break;
+                if (p.execute(cmd)) { fastUntil = millis() + 4000; break; }
                 continue;
             }
             if (p.fetchNextThumbnail()) continue;
             long left = (long)(until - millis());
-            if (left > 0 && xQueueReceive(p._cmdQueue, &cmd, pdMS_TO_TICKS(left)) == pdTRUE && p.execute(cmd)) break;
+            if (left > 0 && xQueueReceive(p._cmdQueue, &cmd, pdMS_TO_TICKS(left)) == pdTRUE && p.execute(cmd)) {
+                fastUntil = millis() + 4000;
+                break;
+            }
         }
     }
 }

@@ -4,7 +4,8 @@
 ** Navigation (the mockup has no nav buttons, so the existing elements are
 ** the targets): Wi-Fi segment -> Configurações, Spotify segment or the
 ** cover -> Playlists, device segment -> Configurações/Dispositivo,
-** track title/artist -> Busca.
+** track title/artist -> Busca. Holding play opens "A seguir" (queue, shuffle,
+** repeat); dragging or tapping the progress bar seeks.
 ** ------------------------------------------------------------------------------------------------
 */
 #pragma once
@@ -18,6 +19,9 @@ public:
 
     void draw() override;
     void onTap(uint16_t x, uint16_t y) override;
+    void onDrag(uint16_t startX, uint16_t startY, int dy) override;
+    void onTouchUp(uint16_t x, uint16_t y) override;
+    bool onLongPress(uint16_t x, uint16_t y) override;
     void handleMessage(SCUIMessage *msg) override;
     void onEnter() override;
 
@@ -60,4 +64,8 @@ private:
     int _volTarget = -1;
     unsigned long _volSendAt = 0;
     void changeVolume(int delta);
+
+    long _seekPreviewMs = -1;   // finger on the progress bar: the bar follows it until release
+    long seekTarget(uint16_t x);
+    bool onBar(uint16_t x, uint16_t y) { return hitRect(x, y, BAR_X - 10, BAR_CY - 14, BAR_W + 20, 26); }
 };

@@ -32,7 +32,7 @@ void PlaylistView::draw() {
 }
 
 void PlaylistView::drawHeaderStatus() {
-    _statusSig = String(WiFi.status() == WL_CONNECTED) + SpotifyPlayer::getInstance().isApiOnline();
+    _statusSig = String(WiFi.status() == WL_CONNECTED) + SpotifyPlayer::getInstance().isApiOnline() + clockText();
     drawWifiStatus(134, HEADER_H / 2, C_BG);
     _ui->fillRect(222, HEADER_H / 2 - 9, 1, 18, C_DIVIDER);
     drawSpotifyStatus(228, HEADER_H / 2, C_BG);
@@ -176,7 +176,7 @@ void PlaylistView::handleMessage(SCUIMessage *msg) {
             break;
         }
         case SCUIMessageType::UM_PLAYER_REFRESH:
-            if (!_dirty && _statusSig != String(WiFi.status() == WL_CONNECTED) + sp.isApiOnline()) drawHeaderStatus();
+            if (!_dirty && _statusSig != String(WiFi.status() == WL_CONNECTED) + sp.isApiOnline() + clockText()) drawHeaderStatus();
             break;
         default:
             UIView::handleMessage(msg);

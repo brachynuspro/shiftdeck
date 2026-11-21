@@ -16,7 +16,7 @@ Mostra a música que está tocando com capa e progresso, controla play/pause/pr�
 <td align="center"><img src="docs/screens/home.png" width="320"><br><sub>Tocando agora: toque na capa, no coração ou nos controles</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screens/playlists.png" width="320"><br><sub>Playlists, com "Curtidas" no topo</sub></td>
+<td align="center"><img src="docs/screens/playlists.png" width="320"><br><sub>Playlists, com "Curtidas" e as tocadas recentemente no topo</sub></td>
 <td align="center"><img src="docs/screens/busca-resultados.png" width="320"><br><sub>Busca de músicas, artistas, álbuns e playlists</sub></td>
 </tr>
 <tr>
@@ -46,6 +46,10 @@ Mostra a música que está tocando com capa e progresso, controla play/pause/pr�
 <tr>
 <td align="center"><img src="docs/screens/wifi-nao-encontrado.png" width="320"><br><sub>Nenhuma rede salva por perto: como adicionar outra</sub></td>
 <td align="center"><img src="docs/screens/conta-nao-liberada.png" width="320"><br><sub>Conta que o app do Spotify não aceita: o que fazer</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screens/a-seguir.png" width="320"><br><sub>A seguir (segure o play): aleatório, repetir e a fila</sub></td>
+<td></td>
 </tr>
 </table>
 
@@ -129,10 +133,13 @@ Na primeira vez, a ShiftDeck mostra o que ela é e o que você vai precisar, e d
 |---|---|
 | Play/pause, ◀◀, ▶▶ | Controla a música no aparelho onde o Spotify está tocando |
 | 🔈− / 🔈+ | Volume do aparelho, 10% por toque |
+| Barra da música | Toque ou arraste para avançar ou voltar |
+| Segurar o play (1 s) | Abre **A seguir**: aleatório, repetir e as próximas músicas |
+| Na busca, segurar uma música | Ela toca a seguir |
 | Coração | Curte ou descurte a faixa |
 | Capa | Abre as playlists |
 | Nome da música | Abre a busca |
-| Barra de cima: Wi-Fi / Spotify / Dispositivo | Configurações / Playlists / Escolher dispositivo |
+| Barra de cima: relógio e Wi-Fi / Spotify / Dispositivo | Configurações / Playlists / Escolher dispositivo |
 
 Se aparecer **"Nenhum dispositivo ativo"**, abra o Spotify em algum aparelho (celular, PC, caixa de som) uma vez; depois a ShiftDeck consegue tocar e trocar de aparelho sozinha.
 

@@ -11,7 +11,7 @@ UIViewManager& UIViewManager::getInstance() {
 
 void UIViewManager::setDisplayUI(DisplayUI *ui) {
     _ui = ui;
-    _views.resize(8);
+    _views.resize(10);
 }
 
 void UIViewManager::registerView(ViewID id, UIView *view) {

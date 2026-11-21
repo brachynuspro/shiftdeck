@@ -25,7 +25,7 @@ void HomeView::onEnter() {
 
 String HomeView::statusSignature() {
     SpotifyPlayer& sp = SpotifyPlayer::getInstance();
-    return String(WiFi.status() == WL_CONNECTED) + sp.isApiOnline() + sp.getActiveDeviceType();
+    return String(WiFi.status() == WL_CONNECTED) + sp.isApiOnline() + sp.getActiveDeviceType() + clockText();
 }
 
 void HomeView::draw() {
@@ -109,6 +109,7 @@ void HomeView::drawProgress(bool force) {
     long dur = _hasMusic ? meta.durationMs : 0;
     long pos = _hasMusic ? meta.progressMs : 0;
     if (_hasMusic && meta.isPlaying && sp.getLastRefreshMs() > 0) pos += (long)(millis() - sp.getLastRefreshMs());
+    if (_seekPreviewMs >= 0) pos = _seekPreviewMs;
     pos = constrain(pos, 0L, max(dur, 0L));
 
     int32_t permille = dur > 0 ? (int32_t)((int64_t)pos * 1000 / dur) : 0;
@@ -175,6 +176,31 @@ void HomeView::changeVolume(int delta) {
     UIViewManager::getInstance().showToast(msg);
 }
 
+long HomeView::seekTarget(uint16_t x) {
+    long dur = SpotifyPlayer::getInstance().getCurrentlyPlayingMetadata().durationMs;
+    return (long)((int64_t)dur * constrain((int)x - BAR_X, 0, BAR_W) / BAR_W);
+}
+
+void HomeView::onDrag(uint16_t startX, uint16_t startY, int) {
+    if (!_hasMusic || !onBar(startX, startY)) return;
+    _seekPreviewMs = seekTarget(_curX);
+    drawProgress(false);
+}
+
+void HomeView::onTouchUp(uint16_t x, uint16_t y) {
+    if (_seekPreviewMs >= 0) {
+        SpotifyPlayer::getInstance().seek(_seekPreviewMs);
+        _seekPreviewMs = -1;
+    }
+    UIView::onTouchUp(x, y);
+}
+
+bool HomeView::onLongPress(uint16_t x, uint16_t y) {
+    if (!hitRect(x, y, PLAY_CX - PLAY_R - 8, PLAY_CY - PLAY_R - 4, PLAY_R * 2 + 16, PLAY_R * 2 + 8)) return false;
+    UIViewManager::getInstance().gotoView(ViewID::Queue);
+    return true;
+}
+
 void HomeView::onTap(uint16_t x, uint16_t y) {
     UIViewManager& vm = UIViewManager::getInstance();
     SpotifyPlayer& sp = SpotifyPlayer::getInstance();
@@ -207,6 +233,12 @@ void HomeView::onTap(uint16_t x, uint16_t y) {
         return;
     }
 
+    if (_hasMusic && onBar(x, y)) {
+        SpotifyPlayer::getInstance().seek(seekTarget(x));
+        drawProgress(false);
+        return;
+    }
+
     // ---- like ----
     if (_hasMusic && hitRect(x, y, HEART_CX - 20, HEART_CY - 20, 40, 40)) {
         sp.toggleLike();
@@ -224,7 +256,7 @@ void HomeView::handleMessage(SCUIMessage *msg) {
     switch (msg->type) {
         case SCUIMessageType::UM_PLAYER_REFRESH: {
             PlayingMetadata meta = sp.getCurrentlyPlayingMetadata();
-            if (_trackUri != meta.trackUri || _hasMusic != sp.isMusicAvailable()) { _dirty = true; break; }
+            if (_trackUri != meta.trackUri || _hasMusic != sp.isMusicAvailable()) { _busyButton = -1; _dirty = true; break; }
             bool playing = _hasMusic && meta.isPlaying;
             if (playing != _isPlaying) { _isPlaying = playing; drawPlayButton(); }
             if (statusSignature() != _statusSig) drawStatusBar();
@@ -241,6 +273,9 @@ void HomeView::handleMessage(SCUIMessage *msg) {
             if (!_dirty && statusSignature() != _statusSig) drawStatusBar();
             break;
         case SCUIMessageType::UM_ACTION_RESULT:
+            // A skip was accepted: keep spinning until the new track shows (a poll or two later);
+            // the 8 s timeout below gives the button back in 4 s if it never does.
+            if (msg->num == 1 && (_busyButton == 0 || _busyButton == 2)) { _busySince = millis() - 4000; break; }
             _busyButton = -1;
             if (!_dirty) drawControls();
             break;
