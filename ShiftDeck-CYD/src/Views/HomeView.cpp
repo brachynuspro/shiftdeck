@@ -147,7 +147,32 @@ void HomeView::drawControls() {
         _ui->drawIcon(busy ? IconID::Spinner : icons[i], xs[i] + BTN_W / 2, BTN_Y + BTN_H / 2, 18,
                       busy ? C_GREEN : C_WHITE, C_BUTTON);
     }
+    for (int i = 0; i < 2; i++) {
+        int32_t x = i ? VOL_UP_X : VOL_DOWN_X, cx = x + VOL_W / 2, cy = BTN_Y + BTN_H / 2;
+        _ui->fillRoundRect(x, BTN_Y, VOL_W, BTN_H, 14, C_BUTTON, C_CARD);
+        // speaker cone + sign
+        const float sx = cx - 8;
+        const float cone[8] = { sx, (float)cy - 3, sx + 6, (float)cy - 8, sx + 6, (float)cy + 8, sx, (float)cy + 3 };
+        _ui->fillRect(sx - 4, cy - 3, 5, 7, C_WHITE);
+        _ui->fillQuad(cone, C_WHITE, C_BUTTON);
+        _ui->fillRect(cx + 4, cy - 1, 9, 3, C_WHITE);                  // minus
+        if (i) _ui->fillRect(cx + 7, cy - 4, 3, 9, C_WHITE);           // plus
+    }
     drawPlayButton();
+}
+
+void HomeView::changeVolume(int delta) {
+    SpotifyPlayer& sp = SpotifyPlayer::getInstance();
+    if (!_volSendAt) _volTarget = sp.getActiveVolume();     // nothing pending: start from the device
+    if (_volTarget < 0) {
+        UIViewManager::getInstance().showToast("Nenhum dispositivo ativo");
+        return;
+    }
+    _volTarget = constrain(_volTarget + delta, 0, 100);
+    _volSendAt = millis() + 400;
+    char msg[24];
+    snprintf(msg, sizeof(msg), "Volume %d%%", _volTarget);
+    UIViewManager::getInstance().showToast(msg);
 }
 
 void HomeView::onTap(uint16_t x, uint16_t y) {
@@ -173,6 +198,8 @@ void HomeView::onTap(uint16_t x, uint16_t y) {
         drawControls();
         return true;
     };
+    if (hitRect(x, y, VOL_DOWN_X, BTN_Y - 4, VOL_W, BTN_H + 8)) { changeVolume(-VOL_STEP); return; }
+    if (hitRect(x, y, VOL_UP_X, BTN_Y - 4, VOL_W, BTN_H + 8))   { changeVolume(VOL_STEP); return; }
     if (hitRect(x, y, PREV_X, BTN_Y - 4, BTN_W, BTN_H + 8)) { if (start(0)) sp.previousSong(); return; }
     if (hitRect(x, y, NEXT_X, BTN_Y - 4, BTN_W, BTN_H + 8)) { if (start(2)) sp.nextSong(); return; }
     if (hitRect(x, y, PLAY_CX - PLAY_R - 8, PLAY_CY - PLAY_R - 4, PLAY_R * 2 + 16, PLAY_R * 2 + 8)) {
@@ -219,6 +246,10 @@ void HomeView::handleMessage(SCUIMessage *msg) {
             break;
         case SCUIMessageType::UM_IDLE: {
             unsigned long now = millis();
+            if (_volSendAt && (long)(now - _volSendAt) >= 0) {
+                sp.setVolume(_volTarget);
+                _volSendAt = 0;
+            }
             if (_dirty) break;
             if (now - _lastTickMs >= 250) {
                 _lastTickMs = now;

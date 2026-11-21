@@ -32,6 +32,7 @@ struct DeviceInfo {
     String name;
     String type;          // Spotify type: Smartphone, Computer, Speaker, ...
     bool   active = false;
+    int    volume = -1;   // volume_percent, -1 if the device does not report it
 };
 
 class SpotifyPlayer {
@@ -75,6 +76,9 @@ public:
     void installUpdate();               // posts UM_UPDATE_PROGRESS; restarts on success
     String getLatestVersion();          // "" until a check succeeded
 
+    void setVolume(int percent);        // active device, 0..100
+    int getActiveVolume();              // -1 when no active device reports one
+
     static String thumbPath(const String& url);     // LittleFS path of a cached thumbnail
     static String deviceTypeLabel(const String& spotifyType);
 
@@ -83,7 +87,7 @@ private:
 
     enum CmdType : uint8_t { CMD_PAUSE = 1, CMD_PLAY, CMD_NEXT, CMD_PREV, CMD_LIKE, CMD_PLAY_ITEM,
                              CMD_SEARCH, CMD_PLAYLISTS, CMD_DEVICES, CMD_TRANSFER,
-                             CMD_CHECK_UPDATE, CMD_INSTALL_UPDATE };
+                             CMD_CHECK_UPDATE, CMD_INSTALL_UPDATE, CMD_VOLUME };
     struct PlayerCmd {
         CmdType type;
         uint8_t kind;

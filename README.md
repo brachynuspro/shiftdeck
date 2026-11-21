@@ -6,6 +6,8 @@ Mostra a música que está tocando com capa e progresso, controla play/pause/pr�
 
 <p align="center"><img src="docs/screens/home.png" width="480" alt="Tela principal: capa, música, artista, progresso e controles"></p>
 
+<p align="center"><a href="https://www.paypal.com/donate/?hosted_button_id=Q3SECNZ9V6744"><img src="https://img.shields.io/badge/Apoie_o_projeto-PayPal-0070ba?logo=paypal&logoColor=white" alt="Doar com PayPal"></a></p>
+
 ## Telas
 
 <table>
@@ -185,6 +187,16 @@ python3 tools/gen_crt_bundle.py roots.pem certs/x509_crt_bundle.bin
 - [Mapa de UX](ShiftDeck-CYD/MAPA_UX.md): mockups × firmware, decisões e próximos passos
 - [Especificação da interface](PROJETO_SPOTIFY_CAR_ESP32_v1.2.md)
 - [Arquitetura](PROJECT_ARCHITECTURE.md) · [Ferramentas e fluxo](TOOLS_AND_WORKFLOW.md) · [Histórico](DEVELOPMENT_JOURNEY.md)
+
+## Apoie o projeto
+
+A ShiftDeck é gratuita e de código aberto. Se ela te ajudou e você quiser apoiar o desenvolvimento (placas para teste, novas funções, tempo), qualquer valor ajuda.
+
+<p align="center">
+  <a href="https://www.paypal.com/donate/?hosted_button_id=Q3SECNZ9V6744"><img src="https://img.shields.io/badge/Doar_com-PayPal-0070ba?logo=paypal&logoColor=white&style=for-the-badge" alt="Doar com PayPal"></a><br><br>
+  <img src="docs/doar-paypal-qr.png" width="180" alt="QR code para doar com PayPal"><br>
+  <sub>Ou aponte a câmera do celular para o QR</sub>
+</p>
 
 ## Licenças de terceiros
 

@@ -158,6 +158,8 @@ void SpotifyPlayer::fetchDevices() {}
 void SpotifyPlayer::transferTo(const String&) {}
 void SpotifyPlayer::checkForUpdate() {}
 void SpotifyPlayer::installUpdate() {}
+void SpotifyPlayer::setVolume(int) {}
+int SpotifyPlayer::getActiveVolume() { return 60; }
 String SpotifyPlayer::getLatestVersion() { return g.latest; }
 bool SpotifyPlayer::isMusicAvailable() { return g.music; }
 bool SpotifyPlayer::isApiOnline() { return g.api; }

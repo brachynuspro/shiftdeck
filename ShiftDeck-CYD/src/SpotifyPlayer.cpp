@@ -246,6 +246,16 @@ void SpotifyPlayer::fetchPlaylists() {
 void SpotifyPlayer::fetchDevices()                   { enqueue(CMD_DEVICES); }
 void SpotifyPlayer::transferTo(const String& id)     { enqueue(CMD_TRANSFER, id); }
 void SpotifyPlayer::checkForUpdate()                 { enqueue(CMD_CHECK_UPDATE); }
+void SpotifyPlayer::setVolume(int percent)           { enqueue(CMD_VOLUME, String(constrain(percent, 0, 100))); }
+
+int SpotifyPlayer::getActiveVolume() {
+    int v = -1;
+    if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) {
+        for (auto& d : _devices) if (d.active) v = d.volume;
+        xSemaphoreGive(_xSemaphoreDataCopy);
+    }
+    return v;
+}
 void SpotifyPlayer::installUpdate()                  { enqueue(CMD_INSTALL_UPDATE); }
 
 String SpotifyPlayer::getLatestVersion() {
@@ -302,6 +312,20 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
         case CMD_PLAYLISTS: doPlaylists();     return false;
         case CMD_DEVICES:   doDevices();       return false;
         case CMD_CHECK_UPDATE: doCheckUpdate(); return false;
+        case CMD_VOLUME: {
+            int st = api("PUT", String(API) + "/me/player/volume?volume_percent=" + cmd.arg);
+            if (st == 200 || st == 202 || st == 204) {
+                if (xSemaphoreTake(_xSemaphoreDataCopy, pdMS_TO_TICKS(500))) {
+                    for (auto& d : _devices) if (d.active) d.volume = atoi(cmd.arg);
+                    xSemaphoreGive(_xSemaphoreDataCopy);
+                }
+            } else {
+                // 403: phones/TVs that only take volume from their own buttons
+                postScuiMessage(SCUIMessageType::UM_TOAST, st == 404 ? "Nenhum dispositivo ativo" :
+                                st == 403 ? "Este aparelho não aceita volume" : "Spotify não respondeu");
+            }
+            return false;
+        }
         case CMD_INSTALL_UPDATE: {
             static int lastPct;
             lastPct = -1;
@@ -500,6 +524,7 @@ void SpotifyPlayer::doDevices() {
     it["name"] = true;
     it["type"] = true;
     it["is_active"] = true;
+    it["volume_percent"] = true;
     JsonDocument doc;
     if (api("GET", String(API) + "/me/player/devices", "", &doc, &filter) != 200) return;
     std::vector<DeviceInfo> list;
@@ -510,6 +535,7 @@ void SpotifyPlayer::doDevices() {
         di.name = d["name"] | "";
         di.type = d["type"] | "";
         di.active = d["is_active"] | false;
+        di.volume = d["volume_percent"] | -1;
         if (di.id.isEmpty()) continue;   // restricted devices have no id
         if (di.active) activeId = di.id;
         // active first, then phones: the default target when nothing is active

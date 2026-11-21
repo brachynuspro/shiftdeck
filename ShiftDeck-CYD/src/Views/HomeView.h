@@ -37,7 +37,9 @@ private:
     static const int INFO_X = 128, INFO_R = 300;
     static const int HEART_CX = 290, HEART_CY = 101;
     static const int BAR_X = 22, BAR_W = 276, BAR_CY = 164, TIME_CY = 179;
-    static const int BTN_Y = 192, BTN_H = 36, BTN_W = 100, PREV_X = 16, NEXT_X = 204;
+    // [vol-] [prev] (play) [next] [vol+]
+    static const int BTN_Y = 192, BTN_H = 36, BTN_W = 64, PREV_X = 66, NEXT_X = 190;
+    static const int VOL_W = 44, VOL_DOWN_X = 16, VOL_UP_X = 260, VOL_STEP = 10;
     static const int PLAY_CX = 160, PLAY_CY = 210, PLAY_R = 24;
 
     String _trackUri;
@@ -53,4 +55,9 @@ private:
     int8_t _busyButton = -1;   // 0 prev, 1 play, 2 next
     unsigned long _busySince = 0;
     unsigned long _lastSpinMs = 0;
+
+    // Volume taps accumulate locally and go out once the finger stops (one request, not ten).
+    int _volTarget = -1;
+    unsigned long _volSendAt = 0;
+    void changeVolume(int delta);
 };
