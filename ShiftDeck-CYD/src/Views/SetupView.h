@@ -28,6 +28,9 @@ protected:
     Row _rows[3];
     String _qr;   // text encoded in the QR
 
+    void setHeader(int step, const char* title, const char* subtitle, const char* footer) {
+        _step = step; _title = title; _subtitle = subtitle; _footer = footer; _dirty = true;
+    }
     // Replaces one row and repaints only that row (no flicker of the QR).
     void setRow(int i, IconID icon, const char* label, const String& value, uint16_t color);
 

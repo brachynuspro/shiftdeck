@@ -39,6 +39,14 @@ Mostra a música que está tocando com capa e progresso, controla play/pause/pr�
 <td align="center"><img src="docs/screens/config-atualizacao.png" width="320"><br><sub>Configurações › Atualização: versão instalada e a mais recente</sub></td>
 <td align="center"><img src="docs/screens/conta-spotify.png" width="320"><br><sub>Configurações › Conta Spotify: sair e entrar com outra conta</sub></td>
 </tr>
+<tr>
+<td align="center"><img src="docs/screens/config-wifi.png" width="320"><br><sub>Configurações › Wi-Fi: até 5 redes salvas</sub></td>
+<td align="center"><img src="docs/screens/config-wifi-adicionar.png" width="320"><br><sub>Adicionar, editar ou excluir redes pelo celular</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screens/wifi-nao-encontrado.png" width="320"><br><sub>Nenhuma rede salva por perto: como adicionar outra</sub></td>
+<td align="center"><img src="docs/screens/conta-nao-liberada.png" width="320"><br><sub>Conta que o app do Spotify não aceita: o que fazer</sub></td>
+</tr>
 </table>
 
 As imagens saem do simulador do projeto (`ShiftDeck-CYD/sim`), que roda o mesmo código de desenho do firmware.
@@ -69,6 +77,7 @@ As imagens saem do simulador do projeto (`ShiftDeck-CYD/sim`), que roda o mesmo 
 - Depois do login, a placa guarda um *refresh token* e renova o acesso sozinha. Wi-Fi, Client ID e o token ficam só na memória da placa (LittleFS), nunca neste repositório.
 - **Sem Client Secret.** O login usa PKCE, o método do Spotify para aparelhos: a placa cria um código aleatório a cada login e prova que é ela quem pediu, então só o Client ID é necessário e nenhum segredo fica gravado.
 - **Atualizações.** A placa confere o instalador web ao ligar e a cada 6 horas. Quando sai versão nova, pergunta se quer atualizar; a versão nova é baixada por HTTPS para um segundo espaço da memória e só passa a valer depois de chegar inteira. Wi-Fi e conta continuam salvos.
+- **Volta sozinha se a atualização der errado.** A versão nova fica "em teste" até rodar 30 s sem problema. Se ela travar ou reiniciar antes disso, a placa volta sozinha para a versão anterior, avisa na tela e não oferece mais aquela versão automaticamente.
 
 ## Instalação
 
@@ -119,12 +128,15 @@ Na primeira vez, a ShiftDeck mostra o que ela é e o que você vai precisar, e d
 | Onde tocar | O que acontece |
 |---|---|
 | Play/pause, ◀◀, ▶▶ | Controla a música no aparelho onde o Spotify está tocando |
+| 🔈− / 🔈+ | Volume do aparelho, 10% por toque |
 | Coração | Curte ou descurte a faixa |
 | Capa | Abre as playlists |
 | Nome da música | Abre a busca |
 | Barra de cima: Wi-Fi / Spotify / Dispositivo | Configurações / Playlists / Escolher dispositivo |
 
 Se aparecer **"Nenhum dispositivo ativo"**, abra o Spotify em algum aparelho (celular, PC, caixa de som) uma vez; depois a ShiftDeck consegue tocar e trocar de aparelho sozinha.
+
+**Várias redes Wi-Fi.** A placa guarda até 5 redes (casa, trabalho, o roteador do celular no carro) e conecta na de sinal mais forte. Em **Configurações › Wi-Fi** aparecem as redes salvas: toque duas vezes numa para excluir, ou em **Adicionar** para abrir um QR com a página onde você adiciona, troca a senha e exclui redes pelo celular. Se nenhuma rede salva estiver por perto, a tela **Wi-Fi não encontrado** mostra como conectar o celular à placa para adicionar outra, e a placa continua procurando as redes salvas a cada 30 s. Se o Wi-Fi cair por mais de 1 minuto, ela reinicia e procura de novo.
 
 ## Problemas comuns
 
@@ -135,6 +147,8 @@ Se aparecer **"Nenhum dispositivo ativo"**, abra o Spotify em algum aparelho (ce
 | "Spotify Offline" na tela | Confira a internet do Wi-Fi. Se continuar, refaça o Passo 3 (a autorização pode ter sido revogada na conta Spotify). |
 | A placa reinicia ao tocar em **Começar** ou quando a tela acende | Falta energia: o Wi-Fi e o brilho da tela puxam picos de corrente. Use um carregador de tomada (5 V, 1 A) ou um hub com fonte. |
 | O Spotify mostra "INVALID_CLIENT: Invalid redirect URI" | A Redirect URI do seu app no Spotify não está igual à do Passo 2. Copie de novo, sem espaço nem barra no final. |
+| Tela **"Conta não liberada"** | O seu app no Spotify está em modo de desenvolvimento e só aceita as contas cadastradas nele. No [Spotify Dashboard](https://developer.spotify.com/dashboard), abra o app › **User Management** e adicione o nome e o e-mail da conta (até 5). Ou crie um app na conta dessa pessoa e entre com ele (Configurações › Conta Spotify › Sair da conta). |
+| Tela **"Precisa do Premium"** | O Spotify só deixa controlar a música em contas Premium. Entre com uma conta Premium em Configurações › Conta Spotify › Sair da conta. |
 | Quero apagar tudo e configurar de novo | No instalador, use **Instalar do zero**: apaga Wi-Fi, conta e calibração. |
 
 ## Segurança e privacidade
@@ -169,6 +183,7 @@ python3 tools/gen_crt_bundle.py roots.pem certs/x509_crt_bundle.bin
 
 1. Suba `VERSION` em `ShiftDeck-CYD/src/config.h`.
 2. `sh tools/release.sh --publish` (dentro de `ShiftDeck-CYD/`, com o `gh` logado). A página do instalador atualiza em ~1 minuto, e as placas ligadas oferecem a versão nova em até 6 horas (ou na hora, em Configurações › Atualização › Verificar).
+3. Crie a Release no GitHub com o que mudou e a imagem completa: `gh release create vX.Y.Z ShiftDeck-CYD/flasher/firmware/shiftdeck.bin --title "ShiftDeck vX.Y.Z" --notes "..."`.
 
 ## Estrutura
 

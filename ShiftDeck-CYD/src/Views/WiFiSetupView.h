@@ -10,4 +10,6 @@ public:
     WiFiSetupView(DisplayUI *ui);
     void setNetwork(const String& ssid, const String& pass);
     void setIP(const String& ip);
+    // Networks are saved but none is in range: same portal, worded as "not found".
+    void setNoNetwork(bool none);
 };

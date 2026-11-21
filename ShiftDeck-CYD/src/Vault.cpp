@@ -46,8 +46,14 @@ void Vault::load() {
         return;
     }
 
-    if (!doc["wifi_ssid"].isNull()) _wifiSSID = doc["wifi_ssid"].as<String>();
-    if (!doc["wifi_pass"].isNull()) _wifiPassword = doc["wifi_pass"].as<String>();
+    _wifi.clear();
+    for (JsonObject n : doc["wifi"].as<JsonArray>())
+        if (_wifi.size() < MAX_WIFI && n["s"].as<String>().length()) _wifi.push_back({ n["s"].as<String>(), n["p"].as<String>() });
+    // Up to v1.3 there was a single network
+    if (_wifi.empty() && doc["wifi_ssid"].as<String>().length())
+        _wifi.push_back({ doc["wifi_ssid"].as<String>(), doc["wifi_pass"].as<String>() });
+    _pendingUpdate = doc["ota_pending"] | "";
+    _skipVersion = doc["ota_skip"] | "";
     if (!doc["spotify_refresh_token"].isNull()) _spotifyRefreshToken = doc["spotify_refresh_token"].as<String>();
     if (!doc["spotify_client_id"].isNull()) _spotifyClientId = doc["spotify_client_id"].as<String>();
     if (!doc["spotify_client_secret"].isNull()) _spotifyClientSecret = doc["spotify_client_secret"].as<String>();
@@ -65,8 +71,13 @@ void Vault::load() {
 
 void Vault::save() {
     JsonDocument doc;
-    doc["wifi_ssid"] = _wifiSSID;
-    doc["wifi_pass"] = _wifiPassword;
+    JsonArray nets = doc["wifi"].to<JsonArray>();
+    for (auto& n : _wifi) { JsonObject o = nets.add<JsonObject>(); o["s"] = n.ssid; o["p"] = n.pass; }
+    // Older firmware reads only these: a downgrade keeps the most recent network.
+    doc["wifi_ssid"] = _wifi.empty() ? String() : _wifi[0].ssid;
+    doc["wifi_pass"] = _wifi.empty() ? String() : _wifi[0].pass;
+    doc["ota_pending"] = _pendingUpdate;
+    doc["ota_skip"] = _skipVersion;
     doc["spotify_refresh_token"] = _spotifyRefreshToken;
     doc["spotify_client_id"] = _spotifyClientId;
     doc["spotify_client_secret"] = _spotifyClientSecret;
@@ -134,8 +145,9 @@ void Vault::factoryReset() {
     if (LittleFS.exists(CONFIG_FILE)) LittleFS.remove(CONFIG_FILE);
     if (LittleFS.exists(CONFIG_FILE_TMP)) LittleFS.remove(CONFIG_FILE_TMP);
 
-    _wifiSSID = "";
-    _wifiPassword = "";
+    _wifi.clear();
+    _pendingUpdate = "";
+    _skipVersion = "";
     _spotifyRefreshToken = "";
     _spotifyClientId = DEFAULT_SPOTIFY_CLIENT_ID;
     _spotifyClientSecret = DEFAULT_SPOTIFY_CLIENT_SECRET;
@@ -163,13 +175,31 @@ void Vault::setSpotifyRefreshToken(const String& token) {
 }
 
 
-String Vault::getWiFiSSID() { return _wifiSSID; }
-String Vault::getWiFiPassword() { return _wifiPassword; }
-void Vault::setWiFiCredentials(const String& ssid, const String& pass) {
-    _wifiSSID = ssid;
-    _wifiPassword = pass;
+std::vector<WiFiNet> Vault::getWiFiNetworks() { return _wifi; }
+bool Vault::hasWiFi() { return !_wifi.empty(); }
+
+void Vault::saveWiFiNetwork(const String& ssid, const String& pass) {
+    for (size_t i = 0; i < _wifi.size(); i++)
+        if (_wifi[i].ssid == ssid) { _wifi.erase(_wifi.begin() + i); break; }
+    _wifi.insert(_wifi.begin(), { ssid, pass });
+    if (_wifi.size() > MAX_WIFI) _wifi.pop_back();
     save();
 }
+
+void Vault::removeWiFiNetwork(const String& ssid) {
+    for (size_t i = 0; i < _wifi.size(); i++)
+        if (_wifi[i].ssid == ssid) { _wifi.erase(_wifi.begin() + i); save(); return; }
+}
+
+void Vault::markWiFiUsed(const String& ssid) {
+    for (size_t i = 1; i < _wifi.size(); i++)
+        if (_wifi[i].ssid == ssid) { saveWiFiNetwork(ssid, _wifi[i].pass); return; }
+}
+
+String Vault::getPendingUpdate() { return _pendingUpdate; }
+void Vault::setPendingUpdate(const String& v) { if (v != _pendingUpdate) { _pendingUpdate = v; save(); } }
+String Vault::getSkipVersion() { return _skipVersion; }
+void Vault::setSkipVersion(const String& v) { if (v != _skipVersion) { _skipVersion = v; save(); } }
 
 int Vault::getBrightness() { return _brightness; }
 void Vault::setBrightness(int val) {

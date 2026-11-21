@@ -18,6 +18,13 @@ void WiFiSetupView::setNetwork(const String& ssid, const String& pass) {
     _dirty = true;
 }
 
+void WiFiSetupView::setNoNetwork(bool none) {
+    if (none) setHeader(0, "Wi-Fi não encontrado", "Ligue uma rede salva ou adicione outra pelo QR",
+                        "Procurando as redes salvas a cada 30 s");
+    else      setHeader(1, "Conecte ao Wi-Fi", "Aponte a câmera do celular para o QR",
+                        "Ao salvar a rede, a ShiftDeck reinicia sozinha");
+}
+
 void WiFiSetupView::setIP(const String& ip) {
     setRow(2, IconID::Phone, "Se a página não abrir", ip, C_GREEN);
 }

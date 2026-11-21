@@ -180,6 +180,15 @@ int SpotifyPlayer::api(const char* method, const String& url, const String& body
         else               http.addHeader("Content-Length", "0");   // Spotify answers 411 without it
         status = http.sendRequest(method, (uint8_t*)body.c_str(), body.length());
     }
+    if (status == 403) {
+        // Development-mode apps answer 403 for accounts missing from User Management, and
+        // player commands answer 403 PREMIUM_REQUIRED on Free accounts. Other 403s (e.g. a
+        // device that refuses volume) are left to the caller.
+        String b = http.getString();
+        if (b.indexOf("PREMIUM_REQUIRED") >= 0) _accountIssue = ACCOUNT_NOT_PREMIUM;
+        else if (b.indexOf("not be registered") >= 0) _accountIssue = ACCOUNT_NOT_ALLOWED;
+        spLogW(LOGTAG_PLAYER, "403: %.120s", b.c_str());
+    }
     if (out && status == 200) {
         DeserializationError err = filter
             ? deserializeJson(*out, http.getStream(), DeserializationOption::Filter(*filter))
@@ -292,7 +301,7 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
             bool ok = st == 200 || st == 202 || st == 204;
             if (ok && put) _isPlaying = (cmd.type == CMD_PLAY);
             postScuiMessage(SCUIMessageType::UM_ACTION_RESULT, "", ok ? 1 : 0);
-            if (!ok) postScuiMessage(SCUIMessageType::UM_TOAST, st == 404 ? "Nenhum dispositivo ativo" : "Spotify não respondeu");
+            if (!ok && !_accountIssue) postScuiMessage(SCUIMessageType::UM_TOAST, st == 404 ? "Nenhum dispositivo ativo" : "Spotify não respondeu");
             return true;
         }
         case CMD_LIKE: {
@@ -319,7 +328,7 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
                     for (auto& d : _devices) if (d.active) d.volume = atoi(cmd.arg);
                     xSemaphoreGive(_xSemaphoreDataCopy);
                 }
-            } else {
+            } else if (!_accountIssue) {
                 // 403: phones/TVs that only take volume from their own buttons
                 postScuiMessage(SCUIMessageType::UM_TOAST, st == 404 ? "Nenhum dispositivo ativo" :
                                 st == 403 ? "Este aparelho não aceita volume" : "Spotify não respondeu");
@@ -329,6 +338,8 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
         case CMD_INSTALL_UPDATE: {
             static int lastPct;
             lastPct = -1;
+            // Booting into anything else than this version means the update was rolled back (main.cpp).
+            Vault::getInstance().setPendingUpdate(getLatestVersion());
             String err = Updater::install([](int done, int total) {
                 esp_task_wdt_reset();
                 int pct = total > 0 ? (int)((int64_t)done * 100 / total) : 0;
@@ -339,6 +350,7 @@ bool SpotifyPlayer::execute(const PlayerCmd& cmd) {
                 vTaskDelay(pdMS_TO_TICKS(1500));   // let "Reiniciando..." show
                 ESP.restart();
             }
+            Vault::getInstance().setPendingUpdate("");
             postScuiMessage(SCUIMessageType::UM_UPDATE_PROGRESS, err.c_str(), -1);
             return false;
         }
@@ -767,10 +779,18 @@ void SpotifyPlayer::getCurrentlyPlayingCallback(CurrentlyPlaying currentlyPlayin
 
 void SpotifyPlayer::refreshCurrentSongTask(void *pvParameters) {
     SpotifyPlayer& p = SpotifyPlayer::getInstance();
-    unsigned long lastDevicesMs = 0, lastUpdateCheckMs = 0;
+    unsigned long lastDevicesMs = 0, lastUpdateCheckMs = 0, offlineSinceMs = 0;
     bool updateChecked = false;
     for (;;) {
         esp_task_wdt_reset();
+        // Wi-Fi gone for a minute (left home, router off): restart, so boot joins another saved
+        // network in range or shows "Wi-Fi não encontrado" and waits for one.
+        if (WiFi.status() == WL_CONNECTED) offlineSinceMs = 0;
+        else if (!offlineSinceMs) offlineSinceMs = millis();
+        else if (millis() - offlineSinceMs > 60000) {
+            spLogW(LOGTAG_PLAYER, "Wi-Fi lost for 60 s, restarting");
+            ESP.restart();
+        }
         p.refreshCurrentTrack();
         p.refreshCoverArt();
         if (p._isNewTrack) {

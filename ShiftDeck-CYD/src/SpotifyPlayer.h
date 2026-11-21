@@ -76,6 +76,10 @@ public:
     void installUpdate();               // posts UM_UPDATE_PROGRESS; restarts on success
     String getLatestVersion();          // "" until a check succeeded
 
+    // Spotify refused the account (403): not in the app's User Management, or not Premium.
+    enum : uint8_t { ACCOUNT_OK = 0, ACCOUNT_NOT_ALLOWED = 1, ACCOUNT_NOT_PREMIUM = 2 };
+    int getAccountIssue() { return _accountIssue; }
+
     void setVolume(int percent);        // active device, 0..100
     int getActiveVolume();              // -1 when no active device reports one
 
@@ -126,6 +130,7 @@ private:
     volatile bool _liked = false;
     volatile bool _searchBusy = false;
     volatile bool _playlistsBusy = false;
+    volatile uint8_t _accountIssue = ACCOUNT_OK;
 
     PlayingMetadata _currentlyPlayingMetadata;
     PlayingMetadata _currentlyPlayingMetadataDTO;

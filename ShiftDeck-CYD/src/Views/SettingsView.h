@@ -14,7 +14,8 @@
 
 class SettingsView : public UIView {
 public:
-    enum Panel : uint8_t { PANEL_LIST, PANEL_WIFI, PANEL_ACCOUNT, PANEL_BRIGHTNESS, PANEL_DEVICE, PANEL_UPDATE, PANEL_DIAG };
+    enum Panel : uint8_t { PANEL_LIST, PANEL_WIFI, PANEL_ACCOUNT, PANEL_BRIGHTNESS, PANEL_DEVICE, PANEL_UPDATE, PANEL_DIAG,
+                           PANEL_WIFI_ADD };
     // Lets Home open "Dispositivo" directly.
     static void openPanelOnEnter(Panel p) { s_nextPanel = p; }
 
@@ -33,6 +34,7 @@ private:
     void drawBody();
     void drawListRows();
     void drawWifiPanel();
+    void drawWifiAddPanel();
     void drawAccountPanel();
     void drawBrightnessPanel();
     void drawBrightnessValue();
@@ -51,7 +53,8 @@ private:
     int16_t _knobX = -1;
     std::vector<DeviceInfo> _devices;
     bool _devicesLoaded = false;
-    unsigned long _confirmUntil = 0;   // "Trocar rede" / "Sair da conta" ask for a second tap
+    unsigned long _confirmUntil = 0;   // deleting a network / "Sair da conta" ask for a second tap
+    int8_t _confirmRow = -1;           // Wi-Fi network row waiting for that second tap
 
     static const int HEADER_H = 32;
     static const int ROW_X = 8, ROW_Y = 34, ROW_W = 304, ROW_H = 26, ROW_PITCH = 29;   // six list rows above the footer

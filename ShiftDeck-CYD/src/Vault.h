@@ -5,6 +5,9 @@
 #pragma once
 
 #include <Arduino.h>
+#include <vector>
+
+struct WiFiNet { String ssid; String pass; };
 
 class Vault {
 public:
@@ -21,9 +24,19 @@ public:
     void setSpotifyRefreshToken(const String& token);
 
 
-    String getWiFiSSID();
-    String getWiFiPassword();
-    void setWiFiCredentials(const String& ssid, const String& pass);
+    // Saved Wi-Fi networks, most recently used first (tried first when none is in range).
+    static const int MAX_WIFI = 5;
+    std::vector<WiFiNet> getWiFiNetworks();
+    bool hasWiFi();
+    void saveWiFiNetwork(const String& ssid, const String& pass);   // adds or replaces; a 6th drops the oldest
+    void removeWiFiNetwork(const String& ssid);
+    void markWiFiUsed(const String& ssid);
+
+    // OTA bookkeeping: version being installed, and one that failed and was rolled back.
+    String getPendingUpdate();
+    void setPendingUpdate(const String& v);
+    String getSkipVersion();
+    void setSkipVersion(const String& v);
 
     int getBrightness();
     void setBrightness(int val);
@@ -43,8 +56,9 @@ private:
     String _spotifyClientId;
     String _spotifyClientSecret;
     String _spotifyRefreshToken;
-    String _wifiSSID;
-    String _wifiPassword;
+    std::vector<WiFiNet> _wifi;
+    String _pendingUpdate;
+    String _skipVersion;
     int _brightness = 80;
     String _timezone = "UTC-3";
 

@@ -8,8 +8,8 @@
 #include <Arduino.h>
 
 #define APP_NAME "ShiftDeck"
-#define VERSION  "1.3.4"
-#define VERSION_SHORT "v1.3"
+#define VERSION  "1.4.0"
+#define VERSION_SHORT "v1.4"
 #define BOARD_NAME "ESP32-2432S028"
 
 // Updates come from the public web installer: manifest-update.json ("version")
@@ -96,5 +96,6 @@ enum class ViewID : uint8_t {
     Playlist = 3,
     Settings = 4,
     Welcome = 5,
-    Update = 6
+    Update = 6,
+    Account = 7
 };

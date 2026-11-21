@@ -25,6 +25,8 @@
 #include "Views/SpotifyAuthView.h"
 #include "Views/WelcomeView.h"
 #include "Views/UpdateView.h"
+#include "Views/AccountView.h"
+#include "WiFiSetup.h"
 #include "Updater.h"
 #include <cassert>
 #include "SCLogger.h"
@@ -134,12 +136,18 @@ void runTouchCalibration(DisplayUI&, XPT2046Touch&) {}
 Vault& Vault::getInstance() { static Vault v; return v; }
 int Vault::getBrightness() { return _brightness; }
 void Vault::setBrightness(int v) { _brightness = v; }
-String Vault::getWiFiSSID() { return "Casa_5G"; }
-String Vault::getWiFiPassword() { return ""; }
+static std::vector<WiFiNet> g_wifi = { {"Casa_5G", ""}, {"Meu iPhone", ""}, {"Escritório", ""} };
+std::vector<WiFiNet> Vault::getWiFiNetworks() { return g_wifi; }
+bool Vault::hasWiFi() { return !g_wifi.empty(); }
+void Vault::removeWiFiNetwork(const String& s) { for (size_t i = 0; i < g_wifi.size(); i++) if (g_wifi[i].ssid == s) { g_wifi.erase(g_wifi.begin() + i); return; } }
+WiFiSetup& WiFiSetup::getInstance() { static WiFiSetup w; return w; }
+void WiFiSetup::startWebPage() {}
+void WiFiSetup::stop() {}
+void WiFiSetup::handleLoop() {}
+bool WiFiSetup::takeSaved() { return false; }
 String Vault::getSpotifyClientID() { return "3f9a1c7e5b2d4e8f9a0b1c2d3e4f5a6b"; }
 void Vault::setSpotifyCredentials(const String&, const String&) {}
 void Vault::setSpotifyRefreshToken(const String&) {}
-void Vault::setWiFiCredentials(const String&, const String&) {}
 
 PlayingMetadata::PlayingMetadata() { clear(); }
 void PlayingMetadata::clear() { memset(this, 0, sizeof(*this)); }
@@ -342,6 +350,11 @@ int main(int argc, char** argv) {
     tap(&settings, 20, 16);
     tap(&settings, 160, 34 + 0 * 29 + 10);            // Wi-Fi
     dump(out, "5e_settings_wifi");
+    tap(&settings, 160, 34 + 1 * 29 + 10);            // first tap on a saved network asks
+    dump(out, "5e2_settings_wifi_delete");
+    tap(&settings, 300, 220);                         // Adicionar
+    dump(out, "5e3_settings_wifi_add");
+    tap(&settings, 160, 220);                         // Voltar -> Wi-Fi
     tap(&settings, 20, 16);
     g.latest = "9.9.9";                               // a newer version is published
     tap(&settings, 160, 34 + 4 * 29 + 10);            // Atualização
@@ -369,6 +382,15 @@ int main(int argc, char** argv) {
     wifiSetup.setNetwork("Shiftdeck-Spotify", "SftDckSp0t");
     wifiSetup.draw();
     dump(out, "7a_setup_wifi");
+    wifiSetup.setNoNetwork(true);
+    wifiSetup.draw();
+    dump(out, "7e_setup_wifi_not_found");
+    AccountView account(&ui);
+    account.draw();
+    dump(out, "7f_account_not_allowed");
+    account.setIssue(SpotifyPlayer::ACCOUNT_NOT_PREMIUM);
+    account.draw();
+    dump(out, "7g_account_not_premium");
     SpotifyConfigView cfg(&ui);
     cfg.setIP("192.168.0.42");
     cfg.draw();

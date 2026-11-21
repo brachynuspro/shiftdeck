@@ -3,10 +3,10 @@
 **
 ** Boot flow:
 **   1. Display + Touch + LittleFS init
-**   2. WiFi check:
-**      - No credentials → WiFiSetup screen → captive portal → save → restart
-**      - Credentials exist → connect WiFi
-**        - Fail → WiFiSetup screen → fix → save → restart
+**   2. WiFi check (up to 5 saved networks, Vault):
+**      - None saved → WiFiSetup screen → captive portal → save → restart
+**      - Saved → join the strongest one in range
+**        - None in range → "Wi-Fi não encontrado" + portal; rescans every 30 s, restarts when one is back
 **        - OK → continue
 **   3. Spotify credentials check:
 **      - If default → SpotifyConfig screen → web page → save → restart
@@ -27,6 +27,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
+#include <esp_ota_ops.h>
 
 #include <TFT_eSPI.h>
 #include <TJpg_Decoder.h>
@@ -58,6 +59,7 @@
 #include "Views/SettingsView.h"
 #include "Views/WelcomeView.h"
 #include "Views/UpdateView.h"
+#include "Views/AccountView.h"
 #include "CertBundle.h"
 
 TFT_eSPI       tft = TFT_eSPI();
@@ -78,6 +80,7 @@ PlaylistView*  plView    = nullptr;
 SettingsView*  setView   = nullptr;
 WelcomeView*   welcomeView = nullptr;
 UpdateView*    updateView  = nullptr;
+AccountView*   accountView = nullptr;
 
 QueueHandle_t scuiQueue;
 TaskHandle_t  uiTaskHandle;
@@ -107,6 +110,12 @@ void waitInSetupPortal(bool spotify);
 void checkFactoryResetButton();
 void handleTouchInput();
 void gpioMonitorTask(void *pvParams);
+void acceptFirmwareWhenStable();
+
+// A fresh OTA image boots on probation. Arduino would accept it before setup(); we accept it
+// only after 30 s of normal running (acceptFirmwareWhenStable). If it resets before that
+// (crash, watchdog, boot loop), the bootloader goes back to the previous image by itself.
+extern "C" bool verifyRollbackLater() { return true; }
 
 // Reset button pin and enable flag. We use the BOOT button on
 // GPIO 0 — the same button the user has been pressing all along.
@@ -241,12 +250,25 @@ void setup() {
         bootView->setNotice("Energia fraca: use fonte de 1 A", C_WARN);
     else if (resetReason == ESP_RST_PANIC || resetReason == ESP_RST_INT_WDT || resetReason == ESP_RST_TASK_WDT || resetReason == ESP_RST_WDT)
         bootView->setNotice("Reiniciou por erro", C_ERROR);
+    esp_ota_img_states_t otaState = ESP_OTA_IMG_UNDEFINED;
+    esp_ota_get_state_partition(esp_ota_get_running_partition(), &otaState);
+    spLogI(LOGTAG_BOOT, "Running %s, OTA state %d", esp_ota_get_running_partition()->label, (int)otaState);
+    // An update was installed but this is not it: the new image never got accepted and the
+    // bootloader brought this one back. Say so, and stop offering that version on its own.
+    String pendingUpdate = vault.getPendingUpdate();
+    if (pendingUpdate.length() && pendingUpdate != VERSION) {
+        spLogW(LOGTAG_BOOT, "Update to %s rolled back", pendingUpdate.c_str());
+        vault.setSkipVersion(pendingUpdate);
+        vault.setPendingUpdate("");
+        bootView->setNotice("Atualização falhou: versão anterior mantida", C_WARN);
+    }
     homeView      = new HomeView(&displayUI);
     searchView    = new SearchView(&displayUI);
     plView        = new PlaylistView(&displayUI);
     setView       = new SettingsView(&displayUI);
     welcomeView   = new WelcomeView(&displayUI);
     updateView    = new UpdateView(&displayUI);
+    accountView   = new AccountView(&displayUI);
 
     viewMgr.setDisplayUI(&displayUI);
     viewMgr.registerView(ViewID::Boot, bootView);
@@ -256,10 +278,11 @@ void setup() {
     viewMgr.registerView(ViewID::Settings, setView);
     viewMgr.registerView(ViewID::Welcome, welcomeView);
     viewMgr.registerView(ViewID::Update, updateView);
+    viewMgr.registerView(ViewID::Account, accountView);
 
     // Fresh install (nothing saved yet): present the product and its requirements,
     // then go straight to the Wi-Fi step. waitInSetupPortal() never returns.
-    if (vault.getWiFiSSID().isEmpty() && vault.getSpotifyRefreshToken().isEmpty()) {
+    if (!vault.hasWiFi() && vault.getSpotifyRefreshToken().isEmpty()) {
         viewMgr.gotoView(ViewID::Welcome);
         while (!welcomeView->done()) {
             handleTouchInput();
@@ -278,30 +301,17 @@ void setup() {
     bootView->setProgress(20);
 
     // ---- Wi-Fi ----
-    String ssid = vault.getWiFiSSID();
-    if (ssid.isEmpty()) {
+    if (!vault.hasWiFi()) {
         spLogI(LOGTAG_BOOT, "No WiFi credentials - WiFi setup mode");
         bootView->setStep(BootView::STEP_WIFI, BootView::FAILED, "Não configurado");
         delay(1200);
         waitInSetupPortal(false);
     }
-    spLogI(LOGTAG_BOOT, "Connecting to WiFi: %s", ssid.c_str());
-    bootView->setStep(BootView::STEP_WIFI, BootView::LOADING, "Conectando...");
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid.c_str(), vault.getWiFiPassword().c_str());
-    // 15 dBm instead of 19.5: a little less range, much smaller current peaks, which
-    // reset the board on weak supplies (USB hubs, thin cables, car ports).
-    // Only takes effect once the station is started, i.e. after begin().
-    WiFi.setTxPower(WIFI_POWER_15dBm);
-    unsigned long wifiStart = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 12000) {
-        bootView->animate();
-        bootView->setProgress(20 + (int)((millis() - wifiStart) * 25 / 12000));
-        delay(20);
-    }
-    if (WiFi.status() != WL_CONNECTED) {
-        spLogW(LOGTAG_BOOT, "WiFi failed, starting setup mode");
-        bootView->setStep(BootView::STEP_WIFI, BootView::TIMEOUT);
+    bootView->setStep(BootView::STEP_WIFI, BootView::LOADING, "Procurando...");
+    bootView->setProgress(30);
+    if (!WiFiSetup::getInstance().connectSaved([] { bootView->animate(); })) {
+        spLogW(LOGTAG_BOOT, "No saved WiFi network joined, starting setup mode");
+        bootView->setStep(BootView::STEP_WIFI, BootView::TIMEOUT, "Nenhuma rede");
         delay(1500);
         waitInSetupPortal(false);
     }
@@ -466,14 +476,37 @@ void waitInSetupPortal(bool spotify) {
         WiFiSetup::getInstance().startCaptivePortal();
         wifiSetupView->setIP(WiFi.softAPIP().toString());
         wifiSetupView->setNetwork(WiFiSetup::getInstance().getAPSSID(), WiFiSetup::getInstance().getAPPassword());
+        wifiSetupView->setNoNetwork(vault.hasWiFi());
         wifiSetupView->draw();
     }
+    unsigned long lastScan = millis();
     while (true) {
         if (spotify) SpotifyConfigServer::getInstance().handleClient();
         else         WiFiSetup::getInstance().handleLoop();
         checkFactoryResetButton();
+        acceptFirmwareWhenStable();
+        // Saved networks exist but none was in range (car before the hotspot is up, router
+        // rebooting): look again every 30 s and boot normally once one shows up. Not while a
+        // phone is on the access point: a scan briefly takes the radio off its channel.
+        if (!spotify && vault.hasWiFi() && millis() - lastScan > 30000 && WiFi.softAPgetStationNum() == 0) {
+            lastScan = millis();
+            if (WiFiSetup::getInstance().savedNetworkInRange()) {
+                spLogI(LOGTAG_WIFI, "A saved network is back in range, restarting");
+                ESP.restart();
+            }
+        }
         delay(5);
     }
+}
+
+// See verifyRollbackLater(). Also clears the "update in progress" mark once the new version proved itself.
+void acceptFirmwareWhenStable() {
+    static bool accepted = false;
+    if (accepted || millis() < 30000) return;
+    accepted = true;
+    esp_ota_mark_app_valid_cancel_rollback();
+    if (vault.getPendingUpdate() == VERSION) vault.setPendingUpdate("");
+    spLogI(LOGTAG_BOOT, "Firmware %s accepted", VERSION);
 }
 
 void setupLogging() {
@@ -575,10 +608,19 @@ void dispatchSCUIQueueMessages() {
     if (msg.type == SCUIMessageType::UM_UPDATE_STATUS && msg.num == 1) {
         static char prompted[sizeof(msg.str)] = "";
         UIView* v = viewMgr.getActiveView();
-        if (strcmp(prompted, msg.str) != 0 && v && v->getID() == ViewID::Home) {
+        // A version that already failed and was rolled back is not offered again on its own.
+        if (strcmp(prompted, msg.str) != 0 && v && v->getID() == ViewID::Home && vault.getSkipVersion() != msg.str) {
             strlcpy(prompted, msg.str, sizeof(prompted));
             viewMgr.gotoView(ViewID::Update);
         }
+    }
+    // Account the app does not accept (not allowlisted / not Premium): explain once, over Home.
+    static int shownIssue = 0;
+    int issue = spotifyPlayer.getAccountIssue();
+    if (issue && issue != shownIssue && viewMgr.getActiveView() && viewMgr.getActiveView()->getID() == ViewID::Home) {
+        shownIssue = issue;
+        accountView->setIssue(issue);
+        viewMgr.gotoView(ViewID::Account);
     }
     viewMgr.tick();
     UIView* view = viewMgr.getActiveView();
@@ -741,6 +783,7 @@ void gpioMonitorTask(void *pvParams) {
 }
 
 void loop() {
+    acceptFirmwareWhenStable();
     // The Arduino loop() task is unused now that the GPIO monitor
     // runs as its own FreeRTOS task. Keep a low-overhead idle here
     // so the scheduler still has something to schedule.

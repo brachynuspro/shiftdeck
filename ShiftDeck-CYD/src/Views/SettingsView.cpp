@@ -8,6 +8,7 @@
 #include "XPT2046Touch.h"
 #include "TouchCalibration.h"
 #include "Updater.h"
+#include "WiFiSetup.h"
 #include <WiFi.h>
 
 // Global in main.cpp; reused for recalibration from Diagnóstico.
@@ -15,7 +16,8 @@ extern XPT2046Touch touch;
 
 SettingsView::Panel SettingsView::s_nextPanel = SettingsView::PANEL_LIST;
 
-static const char* const PANEL_TITLES[] = { "Configurações", "Wi-Fi", "Conta Spotify", "Brilho", "Dispositivo", "Atualização", "Diagnóstico" };
+static const char* const PANEL_TITLES[] = { "Configurações", "Wi-Fi", "Conta Spotify", "Brilho", "Dispositivo", "Atualização", "Diagnóstico",
+                                            "Adicionar rede" };
 
 SettingsView::SettingsView(DisplayUI *ui) : UIView(ui) {
     _id = ViewID::Settings;
@@ -25,6 +27,7 @@ void SettingsView::onEnter() {
     _brightness = _savedBrightness = Vault::getInstance().getBrightness();
     _panel = PANEL_LIST;
     _confirmUntil = 0;
+    WiFiSetup::getInstance().stop();
     _devices = SpotifyPlayer::getInstance().getDevices();
     if (s_nextPanel != PANEL_LIST) openPanel(s_nextPanel);
     s_nextPanel = PANEL_LIST;
@@ -32,8 +35,12 @@ void SettingsView::onEnter() {
 }
 
 void SettingsView::openPanel(Panel p) {
+    // The Wi-Fi page is served only while its QR is on screen.
+    if (p == PANEL_WIFI_ADD) WiFiSetup::getInstance().startWebPage();
+    else                     WiFiSetup::getInstance().stop();
     _panel = p;
     _confirmUntil = 0;
+    _confirmRow = -1;
     if (p == PANEL_DEVICE) {
         _devicesLoaded = false;
         SpotifyPlayer::getInstance().fetchDevices();
@@ -66,6 +73,7 @@ void SettingsView::drawBody() {
         case PANEL_DEVICE:     drawDevicePanel(); break;
         case PANEL_UPDATE:     drawUpdatePanel(); break;
         case PANEL_DIAG:       drawDiagPanel(); break;
+        case PANEL_WIFI_ADD:   drawWifiAddPanel(); break;
     }
 }
 
@@ -98,7 +106,7 @@ void SettingsView::drawFooter(const char* left, IconID leftIcon, const char* rig
         return;
     }
     _ui->drawButton(ROW_X, FOOT_Y, FOOT_W, FOOT_H, left, leftIcon, true, C_BUTTON, C_WHITE, C_BG, FONT_MD, 10);
-    bool confirming = _confirmUntil && millis() < _confirmUntil;
+    bool confirming = _confirmUntil && millis() < _confirmUntil && _confirmRow < 0;
     uint16_t fill = confirming ? C_ERROR : (rightPrimary ? C_GREEN_DARK : C_BUTTON);
     _ui->drawButton(ROW_X + ROW_W - FOOT_W, FOOT_Y, FOOT_W, FOOT_H, right, rightIcon, true, fill, C_WHITE, C_BG, FONT_MD, 10);
 }
@@ -119,20 +127,58 @@ void SettingsView::drawListRows() {
     drawRow(5, IconID::Diagnostics, "Diagnóstico", ok ? "OK" : "Atenção", ok ? C_GREEN : C_WARN, true);
 }
 
+// Saved networks, most recent first. Tap one twice to delete it; "Adicionar" serves the page
+// that adds and edits them (WiFiSetup), since typing a password needs the phone.
 void SettingsView::drawWifiPanel() {
-    bool ok = WiFi.status() == WL_CONNECTED;
-    int rssi = ok ? WiFi.RSSI() : 0;
-    const char* quality = rssi > -60 ? "Ótimo" : rssi > -70 ? "Bom" : "Fraco";
-    char sig[32];
-    snprintf(sig, sizeof(sig), "%d dBm · %s", rssi, quality);
-    drawRow(0, IconID::Wifi, "Rede", Vault::getInstance().getWiFiSSID(), ok ? C_GREEN : C_ERROR, false);
-    drawRow(1, IconID::Diagnostics, "Sinal", ok ? String(sig) : String("Desconectado"), ok ? C_GREEN : C_ERROR, false);
-    drawRow(2, IconID::Cloud, "IP", ok ? WiFi.localIP().toString() : String("-"), C_SECONDARY, false);
-    _ui->setTextColor(C_MUTED, C_BG);
-    _ui->drawCentreString("Trocar rede reinicia no modo de configuração", CENTER_X, _ui->textY(FONT_XS, 152), FONT_XS);
-    _ui->drawCentreString("(rede ShiftDeck + QR code)", CENTER_X, _ui->textY(FONT_XS, 168), FONT_XS);
+    std::vector<WiFiNet> nets = Vault::getInstance().getWiFiNetworks();
+    bool online = WiFi.status() == WL_CONNECTED;
     bool confirming = _confirmUntil && millis() < _confirmUntil;
-    drawFooter("Reconectar", IconID::Update, confirming ? "Confirmar?" : "Trocar rede", IconID::Wifi, true);
+    for (size_t i = 0; i < nets.size(); i++) {
+        bool current = online && WiFi.SSID() == nets[i].ssid;
+        char sig[24];
+        snprintf(sig, sizeof(sig), "Conectada %d dBm", current ? (int)WiFi.RSSI() : 0);
+        if (confirming && _confirmRow == (int)i)
+            drawRow(i, IconID::Close, _ui->fitText(nets[i].ssid, 150, FONT_MD).c_str(), "Excluir?", C_ERROR, false);
+        else
+            drawRow(i, current ? IconID::Wifi : IconID::WifiOff, _ui->fitText(nets[i].ssid, 150, FONT_MD).c_str(),
+                    current ? String(sig) : String("Salva"), current ? C_GREEN : C_MUTED, false);
+    }
+    _ui->setTextColor(C_MUTED, C_BG);
+    int32_t hintY = ROW_Y + (int)nets.size() * ROW_PITCH + 10;
+    if (nets.empty()) _ui->drawCentreString("Nenhuma rede salva", CENTER_X, _ui->textY(FONT_SM, 90), FONT_SM);
+    else if (nets.size() < Vault::MAX_WIFI) {
+        _ui->drawCentreString("Conecta sozinha na de sinal mais forte.", CENTER_X, _ui->textY(FONT_XS, hintY), FONT_XS);
+        _ui->drawCentreString("Toque 2 vezes numa rede para excluir.", CENTER_X, _ui->textY(FONT_XS, hintY + 16), FONT_XS);
+    }
+    drawFooter("Voltar", IconID::Undo, "Adicionar", IconID::Wifi, true);
+}
+
+void SettingsView::drawWifiAddPanel() {
+    if (WiFi.status() != WL_CONNECTED) {   // the player task restarts into the setup portal after 60 s
+        _ui->drawIcon(IconID::WifiOff, CENTER_X, 90, 34, C_MUTED, C_BG);
+        _ui->setTextColor(C_WHITE, C_BG);
+        _ui->drawCentreString("Sem Wi-Fi agora", CENTER_X, _ui->textY(FONT_MD_B, 128), FONT_MD_B);
+        _ui->setTextColor(C_MUTED, C_BG);
+        _ui->drawCentreString("Em 1 minuto a ShiftDeck abre a rede", CENTER_X, _ui->textY(FONT_SM, 152), FONT_SM);
+        _ui->drawCentreString("dela, com QR, para você configurar", CENTER_X, _ui->textY(FONT_SM, 172), FONT_SM);
+        drawFooter("Voltar", IconID::Undo, nullptr, IconID::Undo, false);
+        return;
+    }
+    const int32_t qx = 14, qy = 44, qs = 124, tx = qx + qs + 14;
+    String url = "http://" + WiFi.localIP().toString() + "/";
+    _ui->fillRoundRect(qx, qy, qs, qs, 10, C_WHITE, C_BG);
+    drawQR(qx, qy, qs, url);
+    _ui->setTextColor(C_WHITE, C_BG);
+    _ui->drawString("Aponte a câmera", tx, _ui->textY(FONT_MD_B, 56), FONT_MD_B);
+    _ui->drawString("do celular", tx, _ui->textY(FONT_MD_B, 76), FONT_MD_B);
+    _ui->setTextColor(C_SECONDARY, C_BG);
+    _ui->drawString("Ele precisa estar", tx, _ui->textY(FONT_SM, 104), FONT_SM);
+    _ui->drawString("nesta mesma rede.", tx, _ui->textY(FONT_SM, 122), FONT_SM);
+    _ui->drawString("Lá você adiciona,", tx, _ui->textY(FONT_SM, 144), FONT_SM);
+    _ui->drawString("edita e exclui.", tx, _ui->textY(FONT_SM, 162), FONT_SM);
+    _ui->setTextColor(C_MUTED, C_BG);
+    _ui->drawCentreString(url.c_str(), CENTER_X, _ui->textY(FONT_SM, 188), FONT_SM);
+    drawFooter("Voltar", IconID::Undo, nullptr, IconID::Undo, false);
 }
 
 void SettingsView::drawAccountPanel() {
@@ -266,32 +312,30 @@ void SettingsView::onTap(uint16_t x, uint16_t y) {
 
     // Every panel: header arrow or the left button returns to the list
     // (brightness keeps its preview until Salvar/Voltar on the list).
-    if (header || (leftBtn && _panel != PANEL_WIFI)) {
+    if (header || leftBtn || (_panel == PANEL_WIFI_ADD && footer)) {
         if (_panel == PANEL_BRIGHTNESS && leftBtn) { _brightness = _savedBrightness; _ui->setBacklight(_brightness); }
-        _panel = PANEL_LIST;
+        openPanel(_panel == PANEL_WIFI_ADD ? PANEL_WIFI : PANEL_LIST);
         drawBody();
         return;
     }
 
     switch (_panel) {
-        case PANEL_WIFI:
-            if (leftBtn) {
-                WiFi.disconnect();
-                WiFi.begin(Vault::getInstance().getWiFiSSID().c_str(), Vault::getInstance().getWiFiPassword().c_str());
-                UIViewManager::getInstance().showToast("Reconectando...");
-            } else if (rightBtn) {
-                if (_confirmUntil && millis() < _confirmUntil) {
-                    Vault::getInstance().setWiFiCredentials("", "");
-                    _ui->clear(C_BG);
-                    _ui->setTextColor(C_WHITE, C_BG);
-                    _ui->drawCentreString("Reiniciando...", CENTER_X, _ui->textY(FONT_LG, CENTER_Y), FONT_LG);
-                    delay(600);
-                    ESP.restart();
-                }
+        case PANEL_WIFI: {
+            if (rightBtn) { openPanel(PANEL_WIFI_ADD); drawBody(); break; }
+            std::vector<WiFiNet> nets = Vault::getInstance().getWiFiNetworks();
+            if (row < 0 || row >= (int)nets.size()) break;
+            if (_confirmRow == row && _confirmUntil && millis() < _confirmUntil) {
+                Vault::getInstance().removeWiFiNetwork(nets[row].ssid);
+                _confirmRow = -1;
+                _confirmUntil = 0;
+                UIViewManager::getInstance().showToast("Rede excluída");
+            } else {
+                _confirmRow = row;
                 _confirmUntil = millis() + 3000;
-                drawWifiPanel();
             }
+            drawBody();
             break;
+        }
         case PANEL_ACCOUNT:
             if (!rightBtn) break;
             if (_confirmUntil && millis() < _confirmUntil) {
@@ -375,9 +419,20 @@ void SettingsView::handleMessage(SCUIMessage *msg) {
                 UIViewManager::getInstance().showToast(msg->str[0] ? "Você já está na versão mais recente" : "Sem conexão com o servidor");
             break;
         case SCUIMessageType::UM_IDLE:
+            if (_panel == PANEL_WIFI_ADD) {
+                // Checked before serving, so the "Rede salva" page went out a frame ago.
+                if (WiFiSetup::getInstance().takeSaved()) {
+                    openPanel(PANEL_WIFI);
+                    if (!_dirty) drawBody();
+                    UIViewManager::getInstance().showToast("Rede salva");
+                    break;
+                }
+                WiFiSetup::getInstance().handleLoop();
+            }
             if (_confirmUntil && millis() > _confirmUntil) {
                 _confirmUntil = 0;
-                if (!_dirty && _panel == PANEL_WIFI) drawWifiPanel();
+                _confirmRow = -1;
+                if (!_dirty && _panel == PANEL_WIFI) drawBody();
                 if (!_dirty && _panel == PANEL_ACCOUNT) drawAccountPanel();
             }
             break;
